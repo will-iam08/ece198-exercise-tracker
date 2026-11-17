@@ -1,18 +1,7 @@
-# Frontend handoff for Claude
+# Frontend requirements and integration contract
 
-The working backend is in `backend/`. Build the website in a new sibling `frontend/` directory.
+The working backend is in `backend/`. The website lives in the sibling `frontend/` directory.
 Read [the API, schema, and setup contract](backend/README.md), [implemented routes](backend/app.js), and [schema](backend/schema.sql) before coding. Backend tests run with `cd backend && npm test`.
-The repository is private: `will-iam08/ece198-exercise-tracker`. Give Claude the cloned/attached project files or an authenticated repository integration; a repository URL alone may not grant access.
-
-## Ready-to-paste prompt
-
-> Build the frontend for this ECE 198 exercise tracker in `frontend/`, using the existing backend in `backend/`. Read `FRONTEND_HANDOFF.md` and `backend/README.md` first. React with Vite is a reasonable default; keep dependencies and UI simple.
->
-> Implement participant registration/login, device setup, exercise selection, planned duration, live repetition/time/heart-rate display, workout history, and completed-workout progress. Offer Bicep curls, Squats, Arm raises, and a custom exercise name. Also implement a read-only staff dashboard for assigned participants. Use the real API in normal flows; do not generate readings, inferred repetition counts, or mock success responses.
->
-> Design for older participants: large labeled controls, readable text, keyboard access, clear focus, adequate contrast, plain language, and loading/empty/error states. Keep staff screens separate by account role. Treat missing or stale heart rate honestly.
->
-> Preserve the existing backend API and database contracts unless an explicit user requirement requires a change. Staff creation and assignments remain CLI operations. Hardware firmware is separate. Implement safe polling, correct token handling, and the acceptance checks below. Deliver the frontend, dependency lockfile, `.env.example`, and exact install/run instructions. Verify it against the running backend and report what was tested and what remains unverified.
 
 ## Run the two applications
 
@@ -130,7 +119,7 @@ userToken = undefined;
 
 Firmware must send cumulative counters and increasing sequences for each workout; an exact retry is safe, changing an existing sequence is not. See [the complete Wi-Fi upload rules](backend/README.md#esp32-wi-fi-routes). For real hardware, configure backend `HOST=0.0.0.0`, use the computer's LAN address on the ESP32, and keep the frontend origin configured separately. Firmware, sensors/calibration, Bluetooth, deployment, and medical interpretation are outside the frontend task.
 
-## Acceptance checks before handing back the frontend
+## Acceptance checks
 
 - Run the existing backend tests, frontend build, and frontend-specific checks; verify normal screens against this real backend with synthetic participant data.
 - Register/login/logout; expired sessions return to sign-in without stale personal data. A reload follows the chosen memory-token policy. Show validation/conflict/throttle/network errors without exposing credentials.

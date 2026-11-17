@@ -2,10 +2,11 @@
 
 An ESP32 exercise tracker backend for recording repetitions, workout duration, and heart-rate readings, with participant accounts and assigned staff monitoring.
 
-The backend is implemented and tested. The website frontend is the next step.
+The backend and the website frontend are implemented. ESP32 firmware is separate.
 
 - [Backend API, database schema, and setup guide](backend/README.md)
-- [Frontend directions and ready-to-paste Claude prompt](FRONTEND_HANDOFF.md)
+- [Frontend requirements and integration contract](FRONTEND_HANDOFF.md)
+- [Frontend setup, run, and verification guide](frontend/README.md)
 
 ## Run the backend
 
@@ -25,7 +26,7 @@ The API starts at `http://127.0.0.1:3000`. In another terminal, run `npm test` f
 ```text
 backend/               API, SQLite schema, staff management CLI, and tests
 FRONTEND_HANDOFF.md     Frontend requirements and integration contract
-frontend/              Location for the frontend to be built next
+frontend/              React + Vite website (see frontend/README.md)
 ```
 
 The repository includes source, tests, dependency lockfile, and example configuration. Local databases, installed packages, credentials, and unrelated coursework are excluded. ESP32 firmware and a browser UI are separate from the current backend deliverable.
