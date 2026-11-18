@@ -4,59 +4,17 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createApp } from '../app.js';
-import { createDatabase } from '../db.js';
 import { hashPassword } from '../security.js';
-
-const password = 'exercise-test-password';
-
-async function fixture(t, path = ':memory:') {
-  const db = createDatabase(path);
-  const app = createApp({ db, corsOrigin: 'http://localhost:5173' });
-  const server = app.listen(0, '127.0.0.1');
-  await new Promise((resolve, reject) => {
-    server.once('listening', resolve);
-    server.once('error', reject);
-  });
-  let closed = false;
-  async function close() {
-    if (closed) return;
-    closed = true;
-    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    db.close();
-  }
-  t.after(close);
-  const base = `http://127.0.0.1:${server.address().port}`;
-  async function request(path, { method = 'GET', token, body, raw, headers = {}, status = 200 } = {}) {
-    if (token) headers = { ...headers, Authorization: `Bearer ${token}` };
-    if (body !== undefined || raw !== undefined) headers = { 'Content-Type': 'application/json', ...headers };
-    const response = await fetch(base + path, {
-      method, headers, body: raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await response.text();
-    assert.equal(response.status, status, `${method} ${path}: ${text}`);
-    return { data: text ? JSON.parse(text) : null, headers: response.headers };
-  }
-  async function register(email = 'participant@example.com') {
-    return (await request('/api/auth/register', {
-      method: 'POST', body: { name: 'Test participant', email, password }, status: 201,
-    })).data;
-  }
-  async function device(token, name = 'Wrist tracker') {
-    return (await request('/api/devices', { method: 'POST', token, body: { name }, status: 201 })).data;
-  }
-  async function workout(token, device_id, exercise_name = 'Bicep curls') {
-    return (await request('/api/workouts', {
-      method: 'POST', token, body: { device_id, exercise_name, target_duration_seconds: 120 }, status: 201,
-    })).data.workout;
-  }
-  return { db, base, request, register, device, workout, close };
-}
+import { fixture, password } from './fixture.js';
 
 test('public routes, participant registration, login, expiry, and logout', async t => {
   const f = await fixture(t);
   assert.deepEqual((await f.request('/api/health')).data, { status: 'ok' });
-  assert.deepEqual((await f.request('/api/exercises')).data.exercises, ['Bicep curls', 'Squats', 'Arm raises']);
+  assert.deepEqual((await f.request('/api/exercises')).data.exercises, [
+    { id: 'arm_curl', name: 'Arm Curl', placement: 'forearm' },
+    { id: 'shoulder_press', name: 'Shoulder Press', placement: 'upper arm' },
+    { id: 'back_row', name: 'Back Row', placement: 'upper arm' },
+  ]);
   await f.request('/api/unknown', { status: 404 });
   await f.request('/api/me', { status: 401 });
   await f.request('/api/auth/register', {
