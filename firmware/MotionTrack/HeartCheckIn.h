@@ -13,7 +13,8 @@ struct HeartCheckInConfig {
   float tolerance = 0.15f;
   float minBpm = 30;
   float maxBpm = 220;
-  uint32_t retryAfterMs = 8000;
+  uint32_t retryAfterMs = 15000;  // no progress (no two agreeing intervals in a row) for this long -> TryAgain
+  uint32_t fingerLostMs = 750;    // finger off the sensor for this long -> TryAgain; shorter dips are ignored
   uint32_t tryAgainShowMs = 1500;
 };
 
@@ -49,7 +50,8 @@ class HeartCheckIn {
         if (!finger) return state_;
         clearIntervals();
         state_ = CheckIn::Reading;
-        readStart_ = nowMs;
+        progressAt_ = nowMs;
+        lifted_ = false;
         // fall through to process a beat arriving on the same sample
         break;
 
@@ -58,10 +60,18 @@ class HeartCheckIn {
     }
 
     // Reading
-    if (!finger) return enterTryAgain(nowMs);
+    if (!finger) {
+      if (!lifted_) {
+        lifted_ = true;
+        liftedAt_ = nowMs;
+      }
+      if (nowMs - liftedAt_ >= cfg_.fingerLostMs) return enterTryAgain(nowMs);
+      return state_;  // brief dip: ignore this sample
+    }
+    lifted_ = false;
     if (beat) onBeat(nowMs);
     if (state_ == CheckIn::Done) return state_;
-    if (nowMs - readStart_ >= cfg_.retryAfterMs) return enterTryAgain(nowMs);
+    if (nowMs - progressAt_ >= cfg_.retryAfterMs) return enterTryAgain(nowMs);
     return state_;
   }
 
@@ -98,6 +108,11 @@ class HeartCheckIn {
     uint8_t need = cfg_.requiredIntervals;
     if (need > MaxIntervals) need = MaxIntervals;
     if (need == 0) need = 1;
+    // Progress: this interval agrees with the previous one, so the signal is settling.
+    if (count_ > 0) {
+      const float prev = (float)intervals_[count_ - 1];
+      if (fabsf((float)interval - prev) <= cfg_.tolerance * prev) progressAt_ = nowMs;
+    }
     if (count_ == MaxIntervals) {
       for (uint8_t i = 1; i < count_; i++) intervals_[i - 1] = intervals_[i];
       count_--;
@@ -135,6 +150,8 @@ class HeartCheckIn {
   uint8_t count_ = 0;
   bool haveLast_ = false;
   uint32_t lastBeat_ = 0;
-  uint32_t readStart_ = 0;
+  uint32_t progressAt_ = 0;
+  bool lifted_ = false;
+  uint32_t liftedAt_ = 0;
   uint32_t stateSince_ = 0;
 };

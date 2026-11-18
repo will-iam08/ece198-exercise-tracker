@@ -35,8 +35,9 @@ const uint8_t CHECKIN_INTERVALS = 6;          // beat intervals that must agree
 const float CHECKIN_TOLERANCE = 0.15f;        // each interval within +/-15% of their median
 const float CHECKIN_MIN_BPM = 30;             // accepted BPM range
 const float CHECKIN_MAX_BPM = 220;
-const uint32_t CHECKIN_RETRY_AFTER_MS = 8000; // no stable reading for this long -> "Try again"
-const uint32_t CHECKIN_TRY_AGAIN_MS = 1500;   // how long "Try again" is shown
+const uint32_t CHECKIN_RETRY_AFTER_MS = 15000; // no two agreeing beat intervals in a row for this long -> "Try again"
+const uint32_t CHECKIN_FINGER_LOST_MS = 750;   // finger off the sensor this long -> "Try again"; shorter dips are ignored
+const uint32_t CHECKIN_TRY_AGAIN_MS = 1500;    // how long "Try again" is shown
 
 inline HeartCheckInConfig checkInConfig() {
   HeartCheckInConfig c;
@@ -46,6 +47,7 @@ inline HeartCheckInConfig checkInConfig() {
   c.minBpm = CHECKIN_MIN_BPM;
   c.maxBpm = CHECKIN_MAX_BPM;
   c.retryAfterMs = CHECKIN_RETRY_AFTER_MS;
+  c.fingerLostMs = CHECKIN_FINGER_LOST_MS;
   c.tryAgainShowMs = CHECKIN_TRY_AGAIN_MS;
   return c;
 }

@@ -112,7 +112,7 @@ Serial also logs Wi-Fi and server status changes, each rep, each accepted BPM an
 | MotionTrack / Waiting for website | Idle. The bottom line shows Wi-Fi and server status. Start an exercise on the website. |
 | PLACE YOUR FINGER (Before / After exercise) | Heart-rate check-in: put a fingertip on the pulse sensor. |
 | Hold still / Reading pulse... | A finger is on the sensor and beats are being collected. |
-| Try again | No steady reading within the time limit or the finger moved off. It starts again by itself; the website can skip the reading. |
+| Try again | The reading stopped making progress or the finger stayed off the sensor (see `CHECKIN_RETRY_AFTER_MS` and `CHECKIN_FINGER_LOST_MS`). It starts again by itself; the website can skip the reading. |
 | Pulse sensor offline | The MAX30102 is not responding; it is retried every 2 s. |
 | `Arm Curl` + `7 / 10` | Counting reps towards the target. Counting starts only after the before-reading is saved or skipped. |
 | FIX YOUR FORM / FOR BETTER RESULTS | A movement started but did not go far enough to count (shown for 5 s). |
@@ -145,7 +145,8 @@ Serial also logs Wi-Fi and server status changes, each rep, each accepted BPM an
 | `CHECKIN_INTERVALS` | 6 | Beat intervals that must agree before a BPM is accepted. |
 | `CHECKIN_TOLERANCE` | 0.15 | Each of those intervals must be within ±15% of their median. |
 | `CHECKIN_MIN_BPM` / `CHECKIN_MAX_BPM` | 30 / 220 | Accepted BPM range. |
-| `CHECKIN_RETRY_AFTER_MS` | 8000 | No steady reading for this long shows "Try again". |
+| `CHECKIN_RETRY_AFTER_MS` | 15000 | The reading makes no progress (no two beat intervals in a row agree) for this long: "Try again". The timer restarts each time two intervals agree, so one missed or extra beat does not end the attempt. |
+| `CHECKIN_FINGER_LOST_MS` | 750 | The finger is off the sensor for this long: "Try again". Shorter dips in the IR level are ignored. |
 | `CHECKIN_TRY_AGAIN_MS` | 1500 | How long "Try again" stays up before the next attempt. |
 | `POLL_MS` | 1000 | How often the device asks the website for the current exercise. |
 | `HTTP_TIMEOUT_MS` | 3000 | Connect and response timeout per request. |

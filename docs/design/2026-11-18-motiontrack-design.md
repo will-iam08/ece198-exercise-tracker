@@ -173,8 +173,9 @@ Device (Bearer device token)
   Workout gone (null) → device stops, shows "Session ended" briefly, then idle.
 - BPM check-in (`HeartCheckIn`): fresh state per prompt; requires IR ≥ finger threshold; collects beat intervals via
   SparkFun `checkForBeat`; accepts when the last N (default 6) intervals all lie within ±P% (default 15%) of their
-  median and the BPM is within 30–220; reports the median BPM. Finger lost or inconsistent for longer than T
-  (default 8 s) → "Try again" and restart. All values in `config.h`. No 60–90 cap.
+  median and the BPM is within 30–220; reports the median BPM. Inconsistent (no two agreeing intervals in a row)
+  for longer than T (default 15 s), or finger lost for longer than a short debounce (default 0.75 s) → "Try again"
+  and restart. All values in `config.h`. No 60–90 cap.
 - OLED screens: idle "MotionTrack · Waiting for website"; Wi-Fi status; PLACE YOUR FINGER (large); Hold still;
   Try again; `Arm Curl` + `7 / 10` (large); existing FIX YOUR FORM screen; "Done".
 - Serial bench mode: `1`/`2`/`3` select an exercise locally only when no website workout is active; counts print as today.

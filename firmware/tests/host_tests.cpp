@@ -67,7 +67,7 @@ static void checkin_rejects_jitter() {
   bool toggle = false;
   CheckIn s = CheckIn::WaitingFinger;
   bool sawTryAgain = false;
-  while (t <= 8200) {
+  while (t <= cfg.retryAfterMs + 1000) {
     s = c.update(20000, true, t);
     CHECK(s != CheckIn::Done);
     if (s == CheckIn::TryAgain) { sawTryAgain = true; break; }
@@ -75,20 +75,96 @@ static void checkin_rejects_jitter() {
     toggle = !toggle;
   }
   CHECK(sawTryAgain);
-  CHECK(t >= 8000);
+  CHECK(t >= cfg.retryAfterMs);
 }
 
+// Finger off the sensor for longer than the debounce -> Try again.
 static void checkin_finger_lost_try_again() {
   HeartCheckInConfig cfg;
   HeartCheckIn c(cfg);
   c.start(0);
+  const uint32_t lost = cfg.fingerLostMs;
   CHECK(c.update(20000, true, 0) == CheckIn::Reading);
   CHECK(c.update(20000, true, 800) == CheckIn::Reading);
-  CHECK(c.update(500, false, 1000) == CheckIn::TryAgain);
-  CHECK(c.update(500, false, 1000 + 1000) == CheckIn::TryAgain);
+  CHECK(c.update(500, false, 1000) == CheckIn::Reading);
+  CHECK(c.update(500, false, 1000 + lost - 10) == CheckIn::Reading);
+  CHECK(c.update(500, false, 1000 + lost) == CheckIn::TryAgain);
+  const uint32_t at = 1000 + lost;
+  CHECK(c.update(500, false, at + cfg.tryAgainShowMs - 10) == CheckIn::TryAgain);
   // After tryAgainShowMs a fresh collection starts.
-  CHECK(c.update(500, false, 1000 + 1500) == CheckIn::WaitingFinger);
+  CHECK(c.update(500, false, at + cfg.tryAgainShowMs) == CheckIn::WaitingFinger);
   CHECK(c.intervals() == 0);
+}
+
+// Samples every 10 ms (like the sketch's loop) from t0 until Done, Try again or t1.
+// beatAt(t) says whether a beat is detected on the sample at t; irAt(t) gives the IR level.
+template <typename BeatFn, typename IrFn>
+static CheckIn simulate(HeartCheckIn& c, uint32_t t0, uint32_t t1, BeatFn beatAt, IrFn irAt) {
+  CheckIn s = CheckIn::WaitingFinger;
+  for (uint32_t t = t0; t <= t1; t += 10) {
+    s = c.update(irAt(t), beatAt(t), t);
+    if (s == CheckIn::Done || s == CheckIn::TryAgain) return s;
+  }
+  return s;
+}
+
+static long fingerOn(uint32_t) { return 20000; }
+
+// A beat every `period` ms starting at `first`.
+static bool periodic(uint32_t t, uint32_t first, uint32_t period) {
+  return t >= first && (t - first) % period == 0;
+}
+
+// 50 BPM with the first beat a second after the finger lands.
+static void checkin_accepts_steady_50() {
+  HeartCheckInConfig cfg;
+  HeartCheckIn c(cfg);
+  c.start(0);
+  auto beat = [](uint32_t t) { return periodic(t, 1000, 1200); };
+  CHECK(simulate(c, 0, 30000, beat, fingerOn) == CheckIn::Done);
+  CHECK(c.bpm() == 50);
+}
+
+// The 30 BPM bottom of the accepted range is reachable.
+static void checkin_accepts_steady_30() {
+  HeartCheckInConfig cfg;
+  HeartCheckIn c(cfg);
+  c.start(0);
+  auto beat = [](uint32_t t) { return periodic(t, 1500, 2000); };
+  CHECK(simulate(c, 0, 40000, beat, fingerOn) == CheckIn::Done);
+  CHECK(c.bpm() == 30);
+}
+
+// One beat the sensor missed at 72 BPM: collection recovers instead of timing out.
+static void checkin_recovers_from_missed_beat() {
+  HeartCheckInConfig cfg;
+  HeartCheckIn c(cfg);
+  c.start(0);
+  auto beat = [](uint32_t t) { return periodic(t, 0, 830) && t != 3 * 830; };
+  CHECK(simulate(c, 0, 30000, beat, fingerOn) == CheckIn::Done);
+  CHECK(c.bpm() == 72);
+}
+
+// One extra (false) beat at 72 BPM: collection recovers too.
+static void checkin_recovers_from_extra_beat() {
+  HeartCheckInConfig cfg;
+  HeartCheckIn c(cfg);
+  c.start(0);
+  auto beat = [](uint32_t t) { return periodic(t, 0, 830) || t == 4 * 830 + 400; };
+  CHECK(simulate(c, 0, 30000, beat, fingerOn) == CheckIn::Done);
+  CHECK(c.bpm() == 72);
+}
+
+// The IR level dips below the threshold for less than the debounce: no Try again.
+static void checkin_brief_dip_ignored() {
+  HeartCheckInConfig cfg;
+  HeartCheckIn c(cfg);
+  c.start(0);
+  const uint32_t dipFrom = 2000, dipTo = 2000 + cfg.fingerLostMs - 100;
+  auto beat = [](uint32_t t) { return periodic(t, 0, 830); };
+  auto ir = [=](uint32_t t) { return (t >= dipFrom && t < dipTo) ? 500L : 20000L; };
+  CHECK(simulate(c, 0, 30000, beat, ir) == CheckIn::Done);
+  CHECK(c.bpm() == 72);
 }
 
 static void checkin_fresh_each_start() {
@@ -434,6 +510,11 @@ int main() {
   RUN(checkin_finger_lost_try_again);
   RUN(checkin_fresh_each_start);
   RUN(checkin_out_of_range_restarts);
+  RUN(checkin_accepts_steady_50);
+  RUN(checkin_accepts_steady_30);
+  RUN(checkin_recovers_from_missed_beat);
+  RUN(checkin_recovers_from_extra_beat);
+  RUN(checkin_brief_dip_ignored);
   RUN(parse_phase_strings);
   RUN(flow_freezes_at_target);
   RUN(reps_during_before_bpm_do_not_count);
