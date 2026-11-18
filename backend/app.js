@@ -1,5 +1,7 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { hashPassword, verifyPassword, hashToken, newToken, publicUser } from './security.js';
 import { EXERCISES } from './exercises.js';
 import { registerSessionRoutes } from './sessions.js';
@@ -25,7 +27,8 @@ const wrongPortal = {
 
 // corsOrigin: one origin, a comma-separated list, or an array of origins.
 // bot: { webhookSecret, address } for the email bot (both optional).
-export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {} }) {
+// staticDir: optional directory of a built frontend (serves SPA routes when present).
+export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, staticDir = null }) {
   const allowedOrigins = new Set(parseCorsOrigins(corsOrigin));
   const app = express();
   app.disable('x-powered-by');
@@ -34,7 +37,13 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {} }) {
     res.set('X-Content-Type-Options', 'nosniff');
     if (req.headers.origin) {
       res.vary('Origin');
-      if (!allowedOrigins.has(req.headers.origin)) return res.status(403).json({ error: { message: 'Origin is not allowed' } });
+      const host = req.get('host');
+      const sameOrigin = Boolean(host) && (
+        req.headers.origin === `${req.protocol}://${host}` || req.headers.origin === `https://${host}`
+      );
+      if (!allowedOrigins.has(req.headers.origin) && !sameOrigin) {
+        return res.status(403).json({ error: { message: 'Origin is not allowed' } });
+      }
       res.set('Access-Control-Allow-Origin', req.headers.origin);
       res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -387,6 +396,17 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {} }) {
     });
     res.json(result);
   });
+
+  const resolvedStatic = staticDir ? resolve(staticDir) : null;
+  if (resolvedStatic && existsSync(join(resolvedStatic, 'index.html'))) {
+    app.use(express.static(resolvedStatic));
+    app.use((req, res, next) => {
+      if ((req.method === 'GET' || req.method === 'HEAD') && !req.path.startsWith('/api/') && req.path !== '/api') {
+        return res.sendFile(join(resolvedStatic, 'index.html'));
+      }
+      next();
+    });
+  }
 
   app.use((req, res) => res.status(404).json({ error: { message: 'Route not found' } }));
   app.use((error, req, res, next) => {

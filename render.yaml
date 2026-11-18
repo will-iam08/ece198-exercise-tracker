@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: motiontrack
+    runtime: node
+    plan: free
+    buildCommand: cd frontend && npm ci && npm run build && cd ../backend && npm ci
+    startCommand: cd backend && node seed-demo.js && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.11.0
+      - key: HOST
+        value: 0.0.0.0
