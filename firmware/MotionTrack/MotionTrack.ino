@@ -501,7 +501,7 @@ void updateDisplay(unsigned long now) {
     display.setCursor(0, 12);
     display.print("registered");
     display.setCursor(0, 36);
-    display.print("Add it under My devices");
+    display.print("Add under My devices");
     display.setCursor(0, 48);
     display.print("and update secrets.h");
   } else if (endedRecently) {
