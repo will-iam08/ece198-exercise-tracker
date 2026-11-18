@@ -38,8 +38,8 @@ export function AuthProvider({ children }) {
     }
   }, [token, endSession]);
 
-  const login = useCallback(async (email, password) => {
-    startSession(await request('/api/auth/login', { method: 'POST', body: { email, password } }));
+  const login = useCallback(async (email, password, portal) => {
+    startSession(await request('/api/auth/login', { method: 'POST', body: { email, password, portal } }));
   }, [startSession]);
 
   const register = useCallback(async (name, email, password) => {

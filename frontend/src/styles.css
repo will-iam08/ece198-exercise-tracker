@@ -201,3 +201,11 @@ td { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: no-preference) {
   .button, .nav-button { transition: background-color 0.12s; }
 }
+
+/* Branding and entry points */
+.brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.75rem; }
+.portal-label { margin: 0; font-weight: 600; color: var(--primary-dark); }
+.portal-link {
+  display: inline-flex; align-items: center; min-height: 3rem; font-weight: 600; color: var(--primary);
+}
+.portal-link:focus-visible { outline: 3px solid var(--primary-dark); outline-offset: 2px; }

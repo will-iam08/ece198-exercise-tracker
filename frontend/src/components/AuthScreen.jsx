@@ -3,7 +3,8 @@ import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ScreenHeading } from './common.jsx';
 
-export function AuthScreen() {
+export function AuthScreen({ portal = 'patient' }) {
+  const doctor = portal === 'doctor';
   const { login, register, notice } = useAuth();
   const [mode, setMode] = useState('login');
   const [name, setName] = useState('');
@@ -11,7 +12,7 @@ export function AuthScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const registering = mode === 'register';
+  const registering = !doctor && mode === 'register';
 
   function switchMode(next) {
     setMode(next);
@@ -29,10 +30,11 @@ export function AuthScreen() {
     setError('');
     try {
       if (registering) await register(name.trim(), email.trim(), password);
-      else await login(email.trim(), password);
+      else await login(email.trim(), password, portal);
     } catch (failure) {
       setPassword('');
-      if (failure.status === 401) setError('That email or password is not correct. Please try again.');
+      if (failure.status === 403 && failure.message) setError(failure.message);
+      else if (failure.status === 401) setError('That email or password is not correct. Please try again.');
       else if (failure.status === 409) setError('An account with this email already exists. Sign in instead.');
       else setError(describeError(failure));
       setBusy(false);
@@ -44,12 +46,14 @@ export function AuthScreen() {
     <section className="card card-narrow" aria-labelledby="auth-heading">
       {notice && <p className="alert alert-info" role="status">{notice}</p>}
       <div id="auth-heading">
-        <ScreenHeading level={2} key={mode}>{registering ? 'Create your account' : 'Sign in'}</ScreenHeading>
+        <ScreenHeading level={2} key={mode}>{registering ? 'Create your account' : doctor ? 'Doctor sign-in' : 'Sign in'}</ScreenHeading>
       </div>
       <p>
         {registering
-          ? 'Create a participant account to record your workouts.'
-          : 'Participants and staff sign in here with their email and password.'}
+          ? 'Create a patient account to record your movement exercises.'
+          : doctor
+            ? 'Doctors sign in here with their email and password.'
+            : 'Patients sign in here with their email and password.'}
       </p>
       <form onSubmit={onSubmit} noValidate>
         {registering && (
@@ -81,11 +85,18 @@ export function AuthScreen() {
           {busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}
         </button>
       </form>
+      {!doctor && (
+        <p className="switch-mode">
+          {registering ? 'Already have an account?' : 'New patient?'}{' '}
+          <button type="button" className="button button-link" onClick={() => switchMode(registering ? 'login' : 'register')}>
+            {registering ? 'Sign in instead' : 'Create an account'}
+          </button>
+        </p>
+      )}
       <p className="switch-mode">
-        {registering ? 'Already have an account?' : 'New participant?'}{' '}
-        <button type="button" className="button button-link" onClick={() => switchMode(registering ? 'login' : 'register')}>
-          {registering ? 'Sign in instead' : 'Create an account'}
-        </button>
+        {doctor
+          ? <a className="portal-link" href="/">Patient sign-in</a>
+          : <a className="portal-link" href="/doctor">Doctor sign-in</a>}
       </p>
       <p className="hint">For your privacy you are signed out when this page is closed or reloaded.</p>
     </section>
