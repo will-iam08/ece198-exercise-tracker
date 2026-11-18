@@ -154,6 +154,7 @@ let stage = 0; // position inside the current heart-rate reading
 let actAt = Infinity; // when the next device action is due
 let pollAt = 0;
 let pollNow = false;
+let resync = false; // set when the device stopped acting to ask the server where things stand
 
 function enter(phase, delay = 0) {
   exercise.phase = phase;
@@ -192,6 +193,7 @@ async function upload(fields) {
     log(`#${sequence} refused: ${reply.data?.error?.message ?? 'conflict'}${phase ? ` (server phase: ${phase})` : ''}. Checking the server...`);
     actAt = Infinity;
     pollNow = true;
+    resync = true;
     return null;
   }
   lastAck = { path, body, sequence };
@@ -256,6 +258,7 @@ async function actCounting() {
   if (exercise.reps >= exercise.target) {
     actAt = Infinity; // the server moves on to the reading after exercise
     pollNow = true;
+    resync = true;
     return;
   }
   const data = await upload({ event: 'progress', repetitions: exercise.reps + 1 });
@@ -300,7 +303,15 @@ function onPoll(server) {
     enter(server.phase);
     return;
   }
-  if (exercise.phase !== 'done') follow(server, false);
+  const recheck = resync;
+  resync = false;
+  // After a refusal the device waits for this poll. If the server is still in
+  // the same step (for example the refusal was about the sequence number), it
+  // restarts that step from the server's count and last_sequence.
+  if (exercise.phase !== 'done' && follow(server, false) && recheck) {
+    log(`The server is still at ${server.phase} (${server.repetitions} reps, uploads up to #${server.last_sequence}); carrying on from there.`);
+    enter(server.phase);
+  }
 }
 
 for (;;) {
