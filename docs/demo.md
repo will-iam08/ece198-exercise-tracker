@@ -40,7 +40,7 @@ cd ..
 
 Pass: both `npm ci` commands finish without errors.
 
-Start from a clean database for the demo (this deletes only the local demo data):
+Start from a clean database for the demo (stop the backend first if it is running; this deletes only the local demo data):
 
 ```bash
 rm -f backend/data/ece198.sqlite backend/data/ece198.sqlite-wal backend/data/ece198.sqlite-shm
@@ -90,7 +90,7 @@ Pass: you are signed in and see the tabs Session, History, Progress and My devic
 Open **My devices**, add a device named `Demo ESP32`.
 
 Pass: a device token is shown once. Copy it (**Copy token**) and keep it for the next steps, then press **I have
-saved it, hide token**. The token cannot be shown again; if you lose it, add the device again.
+saved it — hide token**. The token cannot be shown again; if you lose it, add the device again.
 
 ### Step 3: start a session
 
@@ -189,7 +189,15 @@ unset STAFF_PASSWORD
 Sign in at `/doctor` as `other@example.com`.
 
 Pass: the page says "No patients are assigned to you yet." The API agrees. Get a token and ask for the patient's
-sessions (replace the placeholders; the patient id is in the `/api/auth/login` response for the patient):
+sessions. First get the patient's id: sign in as the patient through the API and read `user.id` from the reply
+(`"user":{"id":"..."}`):
+
+```bash
+curl -s -X POST http://127.0.0.1:3000/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"patient@example.com","password":"<the patient password from step 1>","portal":"patient"}'
+```
+
+Then get the other doctor's token:
 
 ```bash
 curl -s -X POST http://127.0.0.1:3000/api/auth/login -H 'Content-Type: application/json' \
@@ -210,7 +218,7 @@ cd backend
 npm run manage -- unassign doctor@example.com patient@example.com
 ```
 
-Pass: the first doctor's patient list becomes empty after the page refreshes (within 5 seconds). Re-run `assign` from
+Pass: the first doctor's patient list becomes empty after the page refreshes (the doctor's patient list refreshes every 5 seconds, so within about 5 seconds). Re-run `assign` from
 step 7 to restore it.
 
 ### Step 10: a skipped or missing BPM leaves an exercise Incomplete
@@ -306,7 +314,7 @@ Pass: each command finishes with all tests passing (the build prints a completed
 - **The fake device says `The server refused the device token (401)`.** Add the device again and use the new token.
 - **Nothing happens on the device.** Start an exercise on the website first. The device only runs the exercise
   the website has started for it.
-- **Start over.** Stop the backend, run the `rm -f` command from section 1 and start it again.
+- **Start over.** Stop the backend first, then run the `rm -f` command from section 1 and start it again.
 
 More detail: [backend README](../backend/README.md) (API and protocol), [frontend README](../frontend/README.md),
 [firmware README](../firmware/README.md) and the [design record](design/2026-11-18-motiontrack-design.md).
