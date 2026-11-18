@@ -312,7 +312,8 @@ export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
 
   app.post('/api/device/workouts/:id/updates', deviceAuth, (req, res) => {
     const target = db.prepare('SELECT kind FROM workouts WHERE id = ? AND device_id = ?').get(req.params.id, req.device.id);
-    if (target?.kind === 'reps') {
+    if (!target) fail(404, 'Workout not found');
+    if (target.kind === 'reps') {
       res.json(transaction(() => {
         const workout = db.prepare('SELECT * FROM workouts WHERE id = ? AND device_id = ?').get(req.params.id, req.device.id);
         if (!workout) fail(404, 'Workout not found');

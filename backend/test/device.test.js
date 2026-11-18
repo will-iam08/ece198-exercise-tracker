@@ -176,3 +176,15 @@ test('device_seen_at updates on poll and upload', async t => {
   assert.ok(f.db.prepare('SELECT device_seen_at FROM workouts WHERE id = ?').get(w.id).device_seen_at);
   assert.ok(dev);
 });
+
+test('rep upload to an unknown or other device workout is 404', async t => {
+  const { f, user, post, exercise } = await setup(t);
+  const w = await exercise('arm_curl', 3);
+  const other = (await f.device(user.token, 'Second tracker')).device_token;
+  const body = { sequence: 1, event: 'progress', repetitions: 1 };
+  const missing = (await post('/api/device/workouts/999999/updates', other, body, 404)).data;
+  assert.equal(missing.error.message, 'Workout not found');
+  const foreign = (await post(`/api/device/workouts/${w.id}/updates`, other, body, 404)).data;
+  assert.equal(foreign.error.message, 'Workout not found');
+  await post(`/api/device/workouts/${w.id}/updates`, other, { sequence: 1, event: 'status', capture_status: 'reading' }, 404);
+});
