@@ -154,10 +154,9 @@ static void flow_freezes_at_target() {
   // Reps ignored until before-BPM saved.
   CHECK(f.onRep(1) == 0);
   CHECK(f.reps() == 0);
-  f.onBeforeBpmSaved();
+  f.onBeforeBpmSaved(1);
   CHECK(f.phase() == Phase::Counting);
   CHECK(f.takeEntered() == Phase::Counting);
-  f.setBaseline(1);
   CHECK(f.onRep(2) == 1);
   CHECK(f.onRep(3) == 2);
   CHECK(!f.frozen());
@@ -170,6 +169,28 @@ static void flow_freezes_at_target() {
   CHECK(f.reps() == 3);
   f.onAfterBpmSaved();
   CHECK(f.phase() == Phase::Done);
+}
+
+static void reps_during_before_bpm_do_not_count() {
+  ExerciseFlow f;
+  ServerWorkout s = makeServer("w5", Phase::BeforeBpm, 0, 10);
+  f.sync(s, 10);
+  f.onRep(11);
+  f.onRep(12);
+  f.onRep(13);  // three reps while the check-in runs
+  f.onBeforeBpmSaved(13);
+  CHECK(f.reps() == 0);
+  CHECK(f.onRep(14) == 1);
+}
+
+static void counter_behind_baseline_does_not_complete() {
+  ExerciseFlow f;
+  ServerWorkout s = makeServer("w6", Phase::Counting, 2, 5);
+  f.sync(s, 100);
+  CHECK(f.onRep(3) == 2);  // counter restarted below baseline
+  CHECK(f.phase() == Phase::Counting);
+  CHECK(!f.frozen());
+  CHECK(f.onRep(4) == 3);
 }
 
 static void resume_mid_counting() {
@@ -350,6 +371,34 @@ static void outbox_drops_status_then_progress_when_full() {
   CHECK(n == EventOutbox::Capacity);
 }
 
+static void outbox_force_status_on_phase_entry() {
+  EventOutbox o;
+  o.reset(0);
+  o.push(EventType::Status, 0, 0);
+  o.push(EventType::Status, 0, 0);
+  CHECK(o.size() == 1);
+  CHECK(o.push(EventType::Status, 0, 0, true));
+  CHECK(o.size() == 2);
+}
+
+static void outbox_evicted_status_is_resendable() {
+  EventOutbox o;
+  o.reset(0);
+  o.push(EventType::Status, 0, 3);
+  for (size_t i = 1; i < EventOutbox::Capacity; i++) o.push(EventType::BeforeBpm, 60);
+  CHECK(o.size() == EventOutbox::Capacity);
+  CHECK(o.push(EventType::AfterBpm, 99));  // evicts the unsent status
+  OutEvent e;
+  bool saw = false;
+  while (o.front(e)) {
+    if (e.type == EventType::Status) saw = true;
+    o.ack();
+  }
+  CHECK(!saw);
+  CHECK(o.push(EventType::Status, 0, 3));  // not suppressed as a duplicate
+  CHECK(o.size() == 1);
+}
+
 // -------------------------------------------------------------------- json
 
 static void json_formats_exact() {
@@ -387,6 +436,8 @@ int main() {
   RUN(checkin_out_of_range_restarts);
   RUN(parse_phase_strings);
   RUN(flow_freezes_at_target);
+  RUN(reps_during_before_bpm_do_not_count);
+  RUN(counter_behind_baseline_does_not_complete);
   RUN(resume_mid_counting);
   RUN(follows_server_when_ahead);
   RUN(does_not_regress_when_server_behind);
@@ -396,6 +447,8 @@ int main() {
   RUN(outbox_retry_keeps_sequence);
   RUN(outbox_keeps_bpm_events_on_overflow);
   RUN(outbox_drops_status_then_progress_when_full);
+  RUN(outbox_force_status_on_phase_entry);
+  RUN(outbox_evicted_status_is_resendable);
   RUN(json_formats_exact);
   if (g_failed) {
     printf("%d check(s) failed\n", g_failed);

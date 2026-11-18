@@ -33,9 +33,9 @@ class ExerciseFlow {
  public:
   enum class Action : uint8_t { None, Reset, Follow, Ended };
 
-  // counterTotal is the rep counter's current running total; it anchors the
+  // counterTotal (required) is the rep counter's current running total; it anchors the
   // baseline when the server's repetition count is adopted (resume/follow).
-  Action sync(const ServerWorkout& s, uint32_t counterTotal = 0) {
+  Action sync(const ServerWorkout& s, uint32_t counterTotal) {
     if (!s.present || s.phase == Phase::Done) {
       active_ = false;
       id_[0] = '\0';
@@ -73,6 +73,11 @@ class ExerciseFlow {
   // Returns reps this workout; frozen at target. Reaching target enters AfterBpm.
   uint16_t onRep(uint32_t counterTotal) {
     if (phase_ != Phase::Counting) return reps_;
+    if ((int32_t)(counterTotal - baseline_) < 0) {
+      // Counter total fell behind the baseline (reset/wrap): re-anchor, no rep.
+      baseline_ = counterTotal - reps_;
+      return reps_;
+    }
     uint32_t n = counterTotal - baseline_;
     if (n > 0xFFFFu) n = 0xFFFFu;
     if (target_ > 0 && n >= target_) {
@@ -85,8 +90,10 @@ class ExerciseFlow {
     return reps_;
   }
 
-  void onBeforeBpmSaved() {
+  // counterTotal re-baselines so reps detected during the check-in are not counted.
+  void onBeforeBpmSaved(uint32_t counterTotal) {
     if (phase_ == Phase::BeforeBpm) {
+      setBaseline(counterTotal - reps_);
       phase_ = Phase::Counting;
       entered_ = Phase::Counting;
     }

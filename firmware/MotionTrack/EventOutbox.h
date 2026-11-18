@@ -29,9 +29,10 @@ class EventOutbox {
     haveAcked_ = false;
   }
 
-  bool push(EventType type, int value, uint8_t status = 0) {
+  // force: send a Status even if equal to the last pushed one (use on every phase entry).
+  bool push(EventType type, int value, uint8_t status = 0, bool force = false) {
     if (type == EventType::Status) {
-      if (haveLastStatus_ && lastStatus_ == status) return true;
+      if (!force && haveLastStatus_ && lastStatus_ == status) return true;
     } else if (type == EventType::Progress && count_ > 0) {
       size_t tail = count_ - 1;
       bool tailSent = (tail == 0 && headAssigned_);
@@ -45,6 +46,7 @@ class EventOutbox {
       size_t victim = findUnsent(EventType::Status);
       if (victim == Capacity) victim = findUnsent(EventType::Progress);
       if (victim == Capacity) return false;
+      if (at(victim).type == EventType::Status) haveLastStatus_ = false;
       removeAt(victim);
     }
     OutEvent& e = at(count_);
