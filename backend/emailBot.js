@@ -71,6 +71,19 @@ export function requestSecret(req) {
   return match ? match[1].trim() : undefined;
 }
 
+// "no X-Bot-Secret or Authorization header", "X-Bot-Secret header (12 characters)"
+// or "Authorization header, scheme \"Basic\", 20 characters after it".
+export function describeCredential(req) {
+  const header = req.get('X-Bot-Secret');
+  if (header !== undefined) return `X-Bot-Secret header (${header.length} characters)`;
+  const auth = req.get('Authorization');
+  if (auth === undefined) return 'no X-Bot-Secret or Authorization header';
+  const [scheme, ...rest] = auth.trim().split(/\s+/);
+  const value = rest.join(' ');
+  if (!value) return `Authorization header with no scheme (${scheme.length} characters)`;
+  return `Authorization header, scheme "${scheme.slice(0, 12)}", ${value.length} characters after it`;
+}
+
 // CloudMailin's "JSON (Normalized)" body has `envelope` and `headers` objects
 // (header names in lower case) and the text in `plain`, `reply_plain` and `html`.
 export function isCloudMailin(body) {
@@ -95,7 +108,12 @@ export function registerBotRoutes(app, { db, webhookSecret }) {
   app.post('/api/bot/inbound-email', (req, res) => {
     // Without BOT_WEBHOOK_SECRET the route does not exist.
     if (!webhookSecret) fail(404, 'Route not found');
-    if (!secretMatches(requestSecret(req), webhookSecret)) fail(401, 'Bot secret is missing or incorrect');
+    if (!secretMatches(requestSecret(req), webhookSecret)) {
+      // Says what kind of credential arrived (never its value), so a mail
+      // service set up with the wrong header can be spotted in the log.
+      console.warn(`Email bot webhook rejected: ${describeCredential(req)}`);
+      fail(401, 'Bot secret is missing or incorrect');
+    }
     let email;
     if (isCloudMailin(req.body)) {
       email = fromCloudMailin(req.body);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { createDatabase } from '../db.js';
 import {
-  findTextPart, fromCloudMailin, htmlToText, ingestEmail, isCloudMailin, parseAddress, pollMailbox, requestSecret, secretMatches,
+  describeCredential, findTextPart, fromCloudMailin, htmlToText, ingestEmail, isCloudMailin, parseAddress, pollMailbox, requestSecret, secretMatches,
   startImapPoller,
 } from '../emailBot.js';
 import { imapSettings, parseCorsOrigins } from '../config.js';
@@ -109,6 +109,13 @@ test('CloudMailin bodies and Bearer secrets are read correctly', () => {
   assert.equal(requestSecret(req({})), undefined);
   // An explicit X-Bot-Secret is never overridden by the Authorization header.
   assert.equal(requestSecret(req({ 'x-bot-secret': 'wrong', authorization: `Bearer ${secret}` })), 'wrong');
+
+  // The rejection log describes the credential without revealing it.
+  assert.equal(describeCredential(req({})), 'no X-Bot-Secret or Authorization header');
+  assert.equal(describeCredential(req({ 'x-bot-secret': 'abc' })), 'X-Bot-Secret header (3 characters)');
+  assert.equal(describeCredential(req({ authorization: `Bearer ${secret}` })), `Authorization header, scheme "Bearer", ${secret.length} characters after it`);
+  assert.equal(describeCredential(req({ authorization: secret })), `Authorization header with no scheme (${secret.length} characters)`);
+  assert.ok(!describeCredential(req({ authorization: `Bearer ${secret}` })).includes(secret));
 });
 
 test('the webhook accepts CloudMailin emails with a Bearer secret', async t => {
