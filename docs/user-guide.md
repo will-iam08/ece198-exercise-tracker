@@ -1,17 +1,19 @@
 # Using the MotionTrack website
 
-This guide walks through the website screen by screen: first for patients, then for doctors, then for the person
-who runs the server and sets up doctor accounts. For installing and starting the servers, see the
+This guide walks through the website screen by screen: first for patients, then for doctors, then for admins and
+the person who runs the server and sets up doctor accounts. For installing and starting the servers, see the
 [README](../README.md); for the full course demo with pass conditions, see [demo.md](demo.md).
 
-With the servers running locally, the website has two entry points:
+With the servers running locally, the website has three entry points:
 
 | Who | Address |
 | --- | --- |
 | Patients | `http://localhost:5173/` |
 | Doctors | `http://localhost:5173/doctor` |
+| Admins | `http://localhost:5173/admin` |
 
-Use `localhost`, not `127.0.0.1`: the backend only accepts requests from that exact address.
+Each sign-in page accepts only its own kind of account. To open the site from a phone on the same Wi-Fi, or
+through a live domain, see [demo.md section 6](demo.md#6-other-devices-the-lan-and-a-live-domain).
 
 For privacy you are signed out whenever the page is reloaded or closed. Signing in again brings you back to a
 workout session that is still running.
@@ -22,8 +24,8 @@ workout session that is still running.
 
 1. Open `http://localhost:5173/` and press **Create an account**.
 2. Enter your name, email address and a password of 12 to 128 characters.
-3. Press **Create account**. You are signed in and see four tabs: **Session**, **History**, **Progress** and
-   **My devices**.
+3. Press **Create account**. You are signed in and see five tabs: **Session**, **History**, **Progress**,
+   **Messages** and **My devices**.
 
 Next time, sign in with the same email and password on the **Sign in** form.
 
@@ -48,11 +50,15 @@ A session holds the exercises you do today.
 1. Open **Session**. If you have more than one device, choose the one you are wearing.
 2. Press **Start workout session**.
 
+If your doctor has set a care plan, a **From Your Doctor** card at the top of the Session tab shows their notes,
+how many reps to do for each exercise, and the heart-rate range to be in after exercising.
+
 ### 4. Choose an exercise
 
 1. Under **1. Choose an exercise**, pick a card: **Arm Curl** (device on the forearm), **Shoulder Press** or
    **Back Row** (device on the upper arm). Each card shows where to wear the device.
-2. Under **2. How many reps?**, enter a whole number from 1 to 50.
+2. Under **2. How many reps?**, enter a whole number from 1 to 50. If your doctor prescribed a number for that
+   exercise, it is filled in for you (each card shows "Doctor's target"); you can still change it.
 3. Press **Start exercise**, then follow the screen on the device.
 
 ### 5. Follow the exercise
@@ -94,6 +100,10 @@ The session moves to your history, and **Start a new session** begins another.
 many exercises were complete. Press **Show exercises** to see each exercise's target, reps done, heart rate
 before and after, start and end times, and status. Use **Newer** and **Older** to page through long lists.
 
+With a care plan, the table also has a **Care plan** column. For each exercise it says, with a badge and in words,
+whether you **Met** the prescribed reps or were **Below** them, and whether your heart rate after was **In range**,
+**Above** or **Below** the target (or **No reading**). It compares with your current plan.
+
 Workouts recorded before sessions existed are listed under **Earlier timed workouts** and are read-only.
 
 ### 8. Progress
@@ -102,6 +112,14 @@ Workouts recorded before sessions existed are listed under **Earlier timed worko
 an **Exercise** (or all exercises), and what to **Show on chart** (completed exercises or repetitions). The
 tiles show the totals and the bar chart shows them per day (per month for long ranges). **Show these numbers as
 a table** gives the same numbers as a table. Days are counted in UTC.
+
+### 9. Messages
+
+Open **Messages** to ask your doctor a question: add a subject if you like, type the question and press **Send
+question**. Your questions are listed below the form with the date, and a doctor's reply appears under each one
+(the page checks for replies every 15 seconds). If the server has an email bot, the tab also shows its address:
+you can email your question there instead, **from the email address you signed up with**; emails from other
+addresses are not delivered.
 
 ## What the statuses mean
 
@@ -121,23 +139,63 @@ shown as 0.
 Doctor accounts are created by the person running the server (see below); there is no sign-up for doctors on
 the website.
 
-1. Open `http://localhost:5173/doctor` and sign in. Patient accounts cannot sign in here, and doctor accounts
-   cannot sign in on the patient page.
-2. **Your patients** lists only the patients assigned to you, with the number assigned and how many are
+1. Open `http://localhost:5173/doctor` and sign in. Patient and admin accounts cannot sign in here, and doctor
+   accounts cannot sign in on the patient or admin page.
+2. **Patient Message Inbox**, at the top, holds questions from your assigned patients, sent from the website or by
+   email. The badge says how many are unread; each message shows the patient's name and email, the subject, the
+   question, when it arrived and **New** or **Read**. Use **Mark as read** (or **Mark as unread**), type in the reply
+   box and press **Send reply** (this also marks it read), or press **Open patient record**. Tick **Show unread
+   messages only** to hide the rest. The inbox refreshes every 10 seconds.
+3. **Your patients** lists only the patients assigned to you, with the number assigned and how many are
    exercising now. A **Live now** badge marks a patient whose session is running. The list refreshes every 5
    seconds.
-3. Press **View workouts** to open a patient. If they are exercising, the **Live session** panel follows the
+4. Press **View workouts** to open a patient. If they are exercising, the **Live session** panel follows the
    current exercise, including the "Device not responding" warning. Below it is the patient's full session
    history, the same as their own **History** tab.
-4. Press **← All patients** to go back.
+5. **Care Plan: Notes, Target Reps & Heart Rate** on the same page sets what the patient sees under **From Your
+   Doctor**: notes (up to 1000 characters), target reps for each exercise (1 to 50, or empty for none) and the
+   lowest and highest heart rate after exercise (30 to 220 bpm, or empty). Press **Save care plan**. The session
+   tables then show whether each exercise met those targets.
+6. Press **← All patients** to go back.
 
-Everything a doctor sees is read-only: there are no buttons that change a patient's records. If a doctor has no
-patients yet, the list says "No patients are assigned to you yet."
+Exercise records are read-only for doctors: there are no buttons that change a patient's workouts. Doctors can
+only write care plans and replies. If a doctor has no patients yet, the list says "No patients are assigned to you
+yet."
 
-## Setting up doctors and assignments
+## Admins
 
-Whoever runs the backend manages doctors from a terminal in the `backend` folder. The patient must have created
-an account on the website first.
+Admins sign in at `http://localhost:5173/admin`. The portal has four tabs:
+
+- **Overview**: totals for patients, doctors, workout sessions, exercises recorded, devices and unread messages,
+  the patients exercising now and any patient without a doctor.
+- **All patients**: every patient with their doctors, number of sessions and last session. **View sessions** opens
+  the same patient page a doctor sees (live session, care plan and history) for any patient.
+- **Assignments**: choose a **Doctor** and a **Patient** and press **Assign patient**. Below, each doctor is listed
+  with their patients; **Unassign** removes one. A patient can have more than one doctor.
+- **Doctor accounts**: **Create doctor account** with a name, email and temporary password (12 to 128
+  characters). Give the password to the doctor in person.
+
+The overview refreshes every 10 seconds.
+
+## Setting up admins, doctors and assignments
+
+Whoever runs the backend creates the first admin from a terminal in the `backend` folder. Doctors and assignments
+can then be managed on the admin portal, or with the commands below. A patient must have created an account on the
+website before they can be assigned.
+
+Create an admin. The password is read from `ADMIN_PASSWORD` (or `STAFF_PASSWORD` if that is not set):
+
+```bash
+read -rs 'ADMIN_PASSWORD?Admin password (12-128 characters): '; echo; export ADMIN_PASSWORD
+```
+
+```bash
+npm run manage -- create-admin admin@example.com "Admin Name"
+```
+
+```bash
+unset ADMIN_PASSWORD
+```
 
 Create a doctor. The password is read from `STAFF_PASSWORD` and is never written to `.env`:
 
@@ -171,9 +229,9 @@ not assigned to them gets "not found".
 | What you see | What to do |
 | --- | --- |
 | "That email or password is not correct." | Check both and try again. Passwords are case-sensitive. |
-| "This is a patient account. Use the patient sign-in." (or the doctor version) | Use the other sign-in page. |
+| "This is a patient account. Use the patient sign-in." (or the doctor or admin version) | Use the sign-in page it names. |
 | "An account with this email already exists." | Sign in instead of creating an account. |
-| A network or origin error when signing in | Make sure the backend is running and that you opened `localhost`, not `127.0.0.1`. |
+| A network or origin error when signing in | Make sure the backend and the website server (`npm run dev`) are both running, and open the site through the website server. |
 | "Device not responding" | Check the device's power and Wi-Fi, and that its `API_BASE_URL` uses the computer's network address. |
 | "An old workout is still open" | Press **Cancel old workout**; it stays in your history. |
 | You were signed out | Reloading or closing the page signs you out. Sign in again; a running session is still there. |

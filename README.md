@@ -5,16 +5,19 @@ the website and picks exercises one at a time (Arm Curl, Shoulder Press, Back Ro
 An ESP32 with a motion sensor, a pulse sensor and a small OLED takes a heart-rate check-in before the set, counts
 reps up to the target, freezes, then takes a check-in after it, and uploads each step over Wi-Fi. A doctor signs in
 separately and reviews their assigned patients' sessions: target, reps, before and after heart rate, times and status.
+Doctors also set each patient's care plan (notes, target reps, a heart-rate range) and answer questions that patients
+send from the website or by email. An admin creates doctor accounts and assigns patients to doctors.
 An exercise is **Complete** only when every rep was counted and both heart-rate readings exist; otherwise it is
 **Incomplete**. Retried uploads are never counted twice.
 
-The website says "patient" and "doctor"; the API, CLI and database call those roles `participant` and `staff`.
+The website says "patient", "doctor" and "admin"; the API, CLI and database call those roles `participant`, `staff`
+and `admin`.
 
 ## Layout
 
 ```text
-backend/    Node 24 + Express + SQLite API, device protocol, doctor-management CLI, tests
-frontend/   React + Vite website: patient at /, doctor at /doctor; synthetic test device script
+backend/    Node 24 + Express + SQLite API, device protocol, account CLI, email bot, tests
+frontend/   React + Vite website: patient at /, doctor at /doctor, admin at /admin; synthetic test device script
 firmware/   ESP32 Arduino sketch (MotionTrack/), host tests, wiring and flashing guide
 docs/       user-guide.md (using the website), demo.md (setup and demo script), design/ (the approved design)
 ```
@@ -39,15 +42,17 @@ test -f .env.local || cp .env.example .env.local
 npm run dev
 ```
 
-Open `http://localhost:5173/` (patient) or `http://localhost:5173/doctor` (doctor). The
+Open `http://localhost:5173/` (patient), `http://localhost:5173/doctor` (doctor) or `http://localhost:5173/admin`
+(admin). The
 [user guide](docs/user-guide.md) explains each screen; to try it without hardware, use the synthetic test device as
 described in [docs/demo.md](docs/demo.md). Run the checks with `cd backend && npm test`,
 `cd frontend && npm test && npm run build` and `bash firmware/tests/run.sh`.
 
 ## Documentation
 
-- [Using the website](docs/user-guide.md): patients, doctors, and setting up doctor accounts
-- [Demo setup and script](docs/demo.md): exact steps, with the test device or the real ESP32
+- [Using the website](docs/user-guide.md): patients, doctors, admins, and setting up accounts
+- [Demo setup and script](docs/demo.md): exact steps, with the test device or the real ESP32; LAN and live-domain
+  access; the email bot
 - [Backend: API, device protocol, schema, migration, CLI](backend/README.md)
 - [Frontend: website setup, test device, behaviour](frontend/README.md)
 - [Firmware: wiring, libraries, flashing, Serial commands](firmware/README.md)

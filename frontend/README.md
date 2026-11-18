@@ -1,21 +1,25 @@
 # MotionTrack website
 
-React + Vite frontend for the [MotionTrack backend](../backend/README.md). It has two entry points:
+React + Vite frontend for the [MotionTrack backend](../backend/README.md). It has three entry points:
 
 - **Patient:** `http://localhost:5173/` — register or sign in, add an ESP32 device, start a workout session, pick
   exercises one at a time (exercise and target reps), watch live reps and heart-rate check-ins, skip a reading,
-  stop an exercise, end the session, and review History and Progress.
-- **Doctor:** `http://localhost:5173/doctor` — sign in with a doctor account, see assigned patients (with a
-  "Live now" badge), and open each patient's sessions and exercises. Read-only.
+  stop an exercise, end the session, review History and Progress, see the doctor's care plan, and ask the doctor
+  questions on the Messages tab.
+- **Doctor:** `http://localhost:5173/doctor` — sign in with a doctor account, read and answer questions in the
+  Patient Message Inbox, see assigned patients (with a "Live now" badge), open each patient's sessions and
+  exercises (read-only), and set each patient's care plan.
+- **Admin:** `http://localhost:5173/admin` — overview metrics, every patient's sessions, patient–doctor
+  assignments and doctor accounts.
 
 Signing in on the wrong entry point is refused by the server ("This is a patient account. Use the patient
-sign-in." / "This is a doctor account. Use the doctor sign-in."). Internally the roles are `participant` (patient)
-and `staff` (doctor); that is what the API and CLI call them.
+sign-in.", or the doctor or admin version). Internally the roles are `participant` (patient), `staff` (doctor) and
+`admin`; that is what the API and CLI call them.
 
 ## Requirements
 
 - Node.js 24 or newer for the backend (the frontend itself builds on Node 22+) and npm.
-- The backend running at `http://127.0.0.1:3000` with `CORS_ORIGIN=http://localhost:5173` (its default).
+- The backend running at `http://127.0.0.1:3000` (the dev server forwards `/api` there).
 
 ## Run it locally
 
@@ -37,14 +41,21 @@ test -f .env.local || cp .env.example .env.local
 npm run dev
 ```
 
-Open **http://localhost:5173** (use `localhost`, not `127.0.0.1`: the backend only accepts that exact origin). The
-dev server is pinned to that host and port and fails rather than moving to another port.
+Open **http://localhost:5173**. The dev server is pinned to port 5173 and fails rather than moving to another port.
+The website calls the API at `/api` on its own address and the dev (and preview) server forwards those calls to the
+backend, so the same build works on `localhost`, on the LAN and through a tunnel. `npm run dev:lan` (or
+`npm run preview:lan` after a build) listens on every network interface so phones on the same Wi-Fi can open it; see
+[../docs/demo.md](../docs/demo.md) section 6 for the LAN and a Cloudflare Tunnel.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | `http://127.0.0.1:3000` | Backend base URL (used when unset, in dev and production builds). |
+| `VITE_API_TARGET` | `http://127.0.0.1:3000` | Where the dev/preview server forwards `/api`. |
+| `VITE_ALLOWED_HOSTS` | none | Extra host names the dev/preview server answers to, comma-separated (for example `.trycloudflare.com`). |
+| `VITE_API_ORIGIN` | none | Only for a website hosted apart from the API: the API origin the browser calls directly (that site's origin must then be in the backend's `CORS_ORIGIN`). `VITE_API_BASE_URL` is accepted as an older name. |
 
-Vite variables are public and end up in the browser bundle. Never put passwords or tokens in them.
+The dev server removes a browser `Origin` header that names the site's own address before forwarding, because the
+backend's `CORS_ORIGIN` list does not know LAN or tunnel addresses; any other origin is passed on and checked by the
+backend. Vite variables are public and end up in the browser bundle. Never put passwords or tokens in them.
 
 ### Tests and build
 
@@ -54,13 +65,16 @@ npm test
 npm run build
 ```
 
-`npm test` runs the unit tests (exercise status and BPM display rules, progress ranges, route detection).
+`npm test` runs the unit tests (exercise status and BPM display rules, progress ranges, route detection, care-plan
+checks and form validation, message and admin helpers, and the dev-server origin rule).
 `npm run build` writes the production build to `dist/`. `npm run preview` serves it at `http://localhost:5173`.
 
-## Doctor accounts
+## Admin and doctor accounts
 
-Doctors are created and assigned with the backend CLI; there is no doctor registration on the website. The patient
-must have registered first:
+There is no doctor or admin registration on the website. Create an admin with the backend CLI
+(`ADMIN_PASSWORD=… npm run manage -- create-admin admin@example.com "Admin Name"`); the admin can then create
+doctor accounts and assignments at `/admin`. The same can be done from the CLI. The patient must have registered
+first:
 
 ```bash
 cd backend
@@ -135,5 +149,8 @@ The full course demo is in [../docs/demo.md](../docs/demo.md).
 - **Status.** An exercise is **Complete** only when all target reps were counted and both check-ins exist.
   Otherwise it ends **Incomplete** (skipped or missing reading, stopped exercise, or session ended early).
 - **Progress** counts completed exercises and reps only, over a selectable range.
-- **Doctor view** uses the same polling for a live session and is read-only; an unassigned patient is not
-  reachable (the API answers 404).
+- **Doctor view** uses the same polling for a live session; exercise records are read-only, and an unassigned
+  patient is not reachable (the API answers 404). The message inbox refreshes every 10 seconds.
+- **Care plans.** The Care plan column compares each exercise with the patient's current plan and always says the
+  result in words next to the badge (Met / Below, In range / Above / Below / No reading).
+- **Admin view** refreshes the overview every 10 seconds and opens any patient with the same page a doctor sees.

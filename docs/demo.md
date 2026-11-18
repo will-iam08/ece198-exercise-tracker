@@ -4,7 +4,8 @@ This is the exact local setup and the course demo, in two versions: **A** with t
 hardware) and **B** with the real ESP32. Run all commands from the repository root unless a step says otherwise.
 Each step lists what must be visible for it to pass.
 
-The website says "patient" and "doctor"; the CLI and API call those roles `participant` and `staff`.
+The website says "patient", "doctor" and "admin"; the CLI and API call those roles `participant`, `staff` and
+`admin`.
 
 ## What has and has not been tested
 
@@ -21,6 +22,10 @@ the website tests and the host-side firmware tests:
 - the MPU6050 rep counting, especially the Shoulder Press and Back Row thresholds;
 - the MAX30102 heart-rate check-in (finger threshold, interval agreement, time limits);
 - the OLED screens and the sensor mounting.
+
+**Not tested against real services:** the IMAP poller of the email bot (its logic is tested with a stand-in
+mailbox), a real mail service calling the webhook, and a Cloudflare Tunnel. LAN access was checked by sending
+requests with a LAN address to the dev server, not from a phone.
 
 Nothing here has been tried with real patients; use made-up accounts.
 
@@ -162,6 +167,8 @@ npm run manage -- assign doctor@example.com patient@example.com
 Pass: each command prints JSON; the first shows the new user with `"role": "staff"`, the second shows
 `"assigned": true`.
 
+The same can be done on the website from the admin portal instead (step 12).
+
 ### Step 8: the assigned doctor sees both exercises
 
 Open `http://localhost:5173/doctor` (sign out of the patient first, or use a private window) and sign in as
@@ -263,6 +270,57 @@ press Enter.
 
 Pass: Serial prints a line like `Retry seq 7 -> HTTP 200 duplicate:true`, and the website's count does not change.
 
+### Step 12: the admin portal
+
+Create an admin account (once):
+
+```bash
+cd backend
+export ADMIN_PASSWORD='demo-admin-password-1'
+npm run manage -- create-admin admin@example.com "Demo Admin"
+unset ADMIN_PASSWORD
+```
+
+`create-admin` reads `ADMIN_PASSWORD`, or `STAFF_PASSWORD` if that is not set (12 to 128 characters). Open
+`http://localhost:5173/admin` and sign in as `admin@example.com`.
+
+Pass:
+
+- **Overview** shows tiles for patients, doctors, workout sessions, exercises recorded, devices and unread messages,
+  and lists any patient exercising now and any patient without a doctor.
+- **Doctor accounts**: fill in **Create doctor account** (name, email, a 12-character password) and press the button.
+  The new doctor appears in the list and can sign in at `/doctor`.
+- **Assignments**: choose a doctor and a patient and press **Assign patient**; the patient appears under that doctor
+  with an **Unassign** button. The doctor's dashboard follows within about 5 seconds.
+- **All patients** → **View sessions** opens any patient's sessions and care plan, assigned or not.
+- Signing in at `/admin` with a patient or doctor account, or at `/` or `/doctor` with the admin account, is refused
+  with "This is an admin account. Use the admin sign-in." (or the patient/doctor equivalent).
+
+### Step 13: a care plan from the doctor
+
+Sign in at `/doctor` as `doctor@example.com`, press **View workouts** next to the patient and fill in **Care Plan:
+Notes, Target Reps & Heart Rate**: a note, for example **Arm Curl 5** and **Back Row 4**, and a heart-rate range
+such as **60** to **120**. Press **Save care plan**.
+
+Pass: "Care plan saved …" appears. Values outside 1–50 reps or 30–220 bpm, or a lowest value above the highest,
+are refused with a message next to the field. The session tables gain a **Care plan** column that says, with a
+badge and words, whether each exercise **Met** the prescribed reps (or was **Below**) and whether the heart rate
+after was **In range**, **Above** or **Below** the target.
+
+Sign in as the patient. Pass: the Session tab shows a **From Your Doctor** card with the note, the reps per exercise
+and the target range; choosing **Arm Curl** fills **Target reps** with 5, and each exercise card shows "Doctor's
+target". History shows the same Care plan column.
+
+### Step 14: a patient question in the doctor's inbox
+
+As the patient, open **Messages**, type a question and press **Send question**.
+
+Pass: as the doctor, **Patient Message Inbox** at the top of the dashboard shows "1 unread message", the patient's
+name and email, the subject, the question and when it arrived, marked **New**. **Mark as read** changes it to
+**Read**; typing a reply and pressing **Send reply** shows the reply under the question, and the patient sees it on
+their Messages tab within about 15 seconds. **Open patient record** opens that patient's page. A doctor who is not
+assigned to the patient does not see the message. To send the question by email instead, see section 7.
+
 ## 4) Demo with the real ESP32 (part B): setup
 
 1. Make the backend reachable from the Wi-Fi: in `backend/.env` set `HOST=0.0.0.0`, then restart `npm start`.
@@ -306,9 +364,105 @@ bash firmware/tests/run.sh
 
 Pass: each command finishes with all tests passing (the build prints a completed bundle).
 
-## 6) Troubleshooting
+## 6) Other devices: the LAN and a live domain
 
-- **Browser shows a network or origin error.** Open the site at `http://localhost:5173`, not `127.0.0.1`.
+The website calls the API at `/api` on its own address, and the Vite server forwards those calls to the backend
+(`VITE_API_TARGET`, default `http://127.0.0.1:3000`). So a phone or another laptop only needs to reach the website;
+the backend can stay on `127.0.0.1` unless the ESP32 needs it (section 4).
+
+**Same Wi-Fi (LAN).** On the laptop:
+
+```bash
+cd frontend
+npm run dev:lan
+```
+
+Vite prints a `Network:` address such as `http://192.168.1.10:5173/`. Open it on the phone (`/doctor` and `/admin`
+work too). If it does not load, allow port 5173 in the laptop firewall. `npm run build` followed by
+`npm run preview:lan` serves the built site the same way.
+
+**A live domain with Cloudflare Tunnel.** Install `cloudflared`, keep `npm run dev` running, and in another
+terminal:
+
+```bash
+cloudflared tunnel --url http://localhost:5173
+```
+
+It prints an `https://<random words>.trycloudflare.com` address. Vite only answers to host names it knows, so allow
+the tunnel's domain in `frontend/.env.local` and restart `npm run dev`:
+
+```bash
+VITE_ALLOWED_HOSTS=.trycloudflare.com
+```
+
+For a named tunnel on your own domain, list that host instead (for example `VITE_ALLOWED_HOSTS=motiontrack.example.org`).
+Anyone with the address can reach the sign-in pages, so use made-up accounts and strong passwords, and stop the
+tunnel after the demo.
+
+**Why no CORS change is needed.** A browser sends an `Origin` header with sign-in and save requests. The Vite
+server removes it when it is the site's own address (LAN or tunnel), and passes any other origin on for the backend
+to check. If the website is served from somewhere that calls the backend directly instead (with `VITE_API_ORIGIN`
+set), add that site's origin to `CORS_ORIGIN` in `backend/.env`; it takes a comma-separated list, and
+`http://localhost:5173,http://127.0.0.1:5173` is the default.
+
+## 7) The email bot
+
+Patients can email a question to a bot address; it lands in their doctors' **Patient Message Inbox** like a question
+sent from the website. Only emails **from the address a patient signed up with** are stored (matched without regard to
+upper/lower case); everything else is ignored. Long emails are cut to 4000 characters.
+
+Set the address patients should write to in `backend/.env`, so the patient's Messages tab can show it:
+
+```bash
+BOT_EMAIL_ADDRESS=ask@motiontrack.example.org
+```
+
+Then choose one way for mail to reach the backend.
+
+**A. Webhook (any mail service that can POST JSON).** Set a long random secret in `backend/.env` and restart:
+
+```bash
+BOT_WEBHOOK_SECRET=<at least 16 random characters, for example from: openssl rand -hex 24>
+```
+
+The service must send `POST /api/bot/inbound-email` with the header `X-Bot-Secret: <the secret>` and a JSON body
+`{"from": "Name <patient@example.com>", "subject": "...", "text": "..."}`. Try it with curl:
+
+```bash
+curl -s -X POST http://127.0.0.1:3000/api/bot/inbound-email -H 'Content-Type: application/json' \
+  -H 'X-Bot-Secret: <the secret>' \
+  -d '{"from":"Demo Patient <PATIENT@example.com>","subject":"Question","text":"Is 120 bpm after the row okay?"}'
+```
+
+Pass: `201` with `{"stored":true,...}` and the question appears in the doctor's inbox marked **By email**. An
+unknown sender gets `202` with `{"stored":false}` and nothing is stored; a missing or wrong secret gets `401`. Without
+`BOT_WEBHOOK_SECRET` the route does not exist (`404`). The mail service must reach the backend: through a tunnel to
+port 3000, or by running the backend with `HOST=0.0.0.0` on a network the service can reach.
+
+**B. IMAP mailbox (the backend reads a mailbox itself).** Use a dedicated mailbox for the bot, ideally with an app
+password. In `backend/.env`:
+
+```bash
+BOT_IMAP_HOST=imap.example.org
+BOT_IMAP_USER=ask@motiontrack.example.org
+BOT_IMAP_PASS=<the mailbox or app password>
+# Optional: BOT_IMAP_PORT=993, BOT_IMAP_TLS=true, BOT_IMAP_MAILBOX=INBOX, BOT_IMAP_POLL_SECONDS=60
+```
+
+The poller starts only when host, user and password are all set; it uses the `imapflow` package, which `npm ci`
+installs as an optional dependency. Every minute it reads unread mail, stores emails from patients and marks every
+email it read as read. Pass: on start the backend prints `Email bot checking ask@… on imap.example.org every 60 s`,
+and an email sent from the patient's address appears in the inbox within a minute. Errors are printed as
+`Email bot: could not check …` (the password is never printed). Never commit `.env`.
+
+## 8) Troubleshooting
+
+- **Browser shows a network or origin error.** Open the site through the Vite server (`npm run dev`), at
+  `http://localhost:5173` or `http://127.0.0.1:5173`, or the LAN or tunnel address from section 6.
+- **`Blocked request. This host is not allowed.`** Add the host name to `VITE_ALLOWED_HOSTS` (section 6) and restart
+  the dev server.
+- **`Too many authentication attempts`.** Sign-in is limited to 20 attempts per 15 minutes per address; wait, or
+  restart the backend during testing.
 - **Port already in use.** Stop the earlier backend or `npm run dev`; the dev server refuses to change ports.
 - **`409 A session is already active`.** End the active session on the website first.
 - **The fake device says `The server refused the device token (401)`.** Add the device again and use the new token.
