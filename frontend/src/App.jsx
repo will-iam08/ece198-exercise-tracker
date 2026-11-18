@@ -1,11 +1,11 @@
 import { useAuth } from './auth.jsx';
 import { AuthScreen } from './components/AuthScreen.jsx';
-import { ParticipantApp } from './components/ParticipantApp.jsx';
+import { PatientApp } from './components/PatientApp.jsx';
 import { StaffApp } from './components/StaffApp.jsx';
 import { currentPortal } from './lib/route.js';
 
-// Tasks 5-6 replace these two with PatientApp and DoctorApp.
-const PatientView = ParticipantApp;
+// Task 6 replaces the doctor view with DoctorApp.
+const PatientView = PatientApp;
 const DoctorView = StaffApp;
 
 const portal = currentPortal();

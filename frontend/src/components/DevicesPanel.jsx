@@ -4,7 +4,7 @@ import { useAuth } from '../auth.jsx';
 import { formatDateTime } from '../lib/format.js';
 import { ErrorMessage, Loading, ScreenHeading } from './common.jsx';
 
-export function DevicesPanel({ devices, devicesError, reloadDevices, selectedDeviceId, onSelect }) {
+export function DevicesPanel({ devices, devicesError, reloadDevices, selectedDeviceId, onSelect, onGoToSession }) {
   const { api } = useAuth();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -67,7 +67,7 @@ export function DevicesPanel({ devices, devicesError, reloadDevices, selectedDev
   return (
     <section aria-labelledby="devices-heading">
       <div id="devices-heading"><ScreenHeading>My devices</ScreenHeading></div>
-      <p>Your exercise device (ESP32) counts repetitions and measures heart rate. Add it here once, then choose it when you start a workout.</p>
+      <p>Your exercise device (ESP32) counts repetitions and measures heart rate. Add it here once, then choose it when you start a workout session.</p>
 
       {provisioned && (
         <div className="alert alert-warning" role="alert">
@@ -81,6 +81,7 @@ export function DevicesPanel({ devices, devicesError, reloadDevices, selectedDev
             <button type="button" className="button" onClick={copyToken}>{copied ? 'Copied ✓' : 'Copy token'}</button>
             <button type="button" className="button button-primary" onClick={() => setProvisioned(null)}>I have saved it — hide token</button>
           </div>
+          {onGoToSession && <p>When the token is in the device, go to the Session tab to start your workout session.</p>}
           <p className="hint" role="status">{copied ? 'The token was copied.' : ''}</p>
         </div>
       )}
@@ -104,7 +105,7 @@ export function DevicesPanel({ devices, devicesError, reloadDevices, selectedDev
               </label>
               {removingId === device.id ? (
                 <div className="alert alert-warning" role="group" aria-label={`Confirm removing ${device.name}`}>
-                  <p>Remove “{device.name}”? Its token stops working and any unfinished workout on it is cancelled. Your past workouts are kept.</p>
+                  <p>Remove “{device.name}”? Its token stops working, any unfinished exercise on it is stopped, and a workout session using it ends. Your past workouts are kept.</p>
                   <div className="button-row">
                     <button type="button" className="button button-danger" disabled={removeBusy} onClick={() => removeDevice(device.id)}>{removeBusy ? 'Removing…' : 'Yes, remove device'}</button>
                     <button type="button" className="button" disabled={removeBusy} onClick={() => setRemovingId(null)}>No, keep it</button>
@@ -117,6 +118,12 @@ export function DevicesPanel({ devices, devicesError, reloadDevices, selectedDev
             </li>
           ))}
         </ul>
+      )}
+
+      {onGoToSession && devices?.length > 0 && (
+        <div className="button-row">
+          <button type="button" className="button button-primary" onClick={onGoToSession}>Go to Session</button>
+        </div>
       )}
 
       <h3>Add a device</h3>

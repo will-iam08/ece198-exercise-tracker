@@ -3,11 +3,13 @@
 export const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 
 export class ApiError extends Error {
-  constructor(message, status, retryAfterSeconds = null) {
+  constructor(message, status, retryAfterSeconds = null, details = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status; // 0 means the server could not be reached at all.
     this.retryAfterSeconds = retryAfterSeconds;
+    // Extra fields from the error body, e.g. { session_id } or { phase } on a 409.
+    this.details = details;
   }
 }
 
@@ -46,10 +48,12 @@ export async function request(path, { method = 'GET', body, query, token, signal
   if (!response.ok) {
     // Retry-After is only readable when the backend exposes it to browsers.
     const retryAfter = Number(response.headers.get('Retry-After'));
+    const { message, ...details } = data?.error && typeof data.error === 'object' ? data.error : {};
     throw new ApiError(
-      data?.error?.message || 'Request failed',
+      (typeof message === 'string' && message) || 'Request failed',
       response.status,
       Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
+      details,
     );
   }
   if (data === null) throw new ApiError('The server sent an unreadable response', response.status);

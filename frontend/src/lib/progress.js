@@ -8,9 +8,9 @@ export const RANGES = [
   { value: 'all', label: 'All time', days: null },
 ];
 
+// Rep exercises have no duration, so progress charts these two measures.
 export const METRICS = [
-  { value: 'workouts', label: 'Completed workouts' },
-  { value: 'duration_seconds', label: 'Total workout time' },
+  { value: 'workouts', label: 'Completed exercises' },
   { value: 'repetitions', label: 'Repetitions' },
 ];
 
