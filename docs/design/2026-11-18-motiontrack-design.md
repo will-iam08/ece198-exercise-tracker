@@ -31,14 +31,14 @@ Non-goals
 - Custom exercise names, Squats, Arm raises, Bicep curls: the device cannot count them.
 - Doctor actions that change data (no notes, no assigning targets). Doctor creation and assignment stay on the CLI.
 - Hosting/deployment, TLS, medical interpretation of BPM, sensor threshold calibration.
-- Creating the `motiontrack-esp32` GitHub repo (the user renames the existing repo in GitHub settings).
+- Creating a new `motiontrack-esp32` GitHub repo. The existing repo is renamed to it in its GitHub settings.
 
 Anti-goals (failure even if it "works")
 - A Wi-Fi retry that double-counts reps or saves a second result.
 - Network calls that stall motion sampling and miss reps.
 - Showing a stale or missing BPM as if it were a real reading; showing null as 0.
 - A doctor seeing an unassigned patient's data via any route (UI hiding is not the protection).
-- Any tool or assistant attribution in code, docs, UI, or commits (user's standing preference). Commits authored as the user.
+- Attribution to anyone other than the project team in code, docs, UI, or commits. Commits are authored by the team.
 
 ## 3. Constraints
 
@@ -56,13 +56,13 @@ Anti-goals (failure even if it "works")
 1. **Extend existing tables and the existing device polling endpoints (chosen).** Add a session table and rep/BPM
    columns to `workouts`; the device keeps polling `GET /api/device/workout` about once a second and keeps the
    sequence-numbered `POST .../updates` with exact-retry dedupe. Server owns the state machine.
-   Fits the handoff, keeps retry safety, keeps old history linked.
+   Builds on the existing code, keeps retry safety, keeps old history linked.
 2. Live push (WebSockets/MQTT) to the device. Lower latency, but adds a broker/server piece and loses the existing
    sequence-based retry protection. Rejected.
 3. New separate tables for rep exercises, leaving `workouts` untouched. Simpler migration, but orphans old
    history from the new views and duplicates authorization code. Rejected.
 
-## 5. Patient flow (decided with the user)
+## 5. Patient flow
 
 1. Sign in → **Start workout session** (choose which of their devices to use if they have more than one;
    with none, they are sent to add one; the token is shown once as today).
@@ -79,7 +79,7 @@ Anti-goals (failure even if it "works")
 9. **End session** with an unfinished exercise → that exercise becomes Incomplete, session ends.
 10. Complete ⇔ recorded reps = target AND before-BPM AND after-BPM present (any values; lower/same after is fine).
 
-Live exercise panel (my design): three steps `Before BPM → Reps → After BPM` with the current one highlighted;
+Live exercise panel: three steps `Before BPM → Reps → After BPM` with the current one highlighted;
 large `7 / 10`; device status line ("Waiting for finger", "Hold still — reading", "Signal weak — trying again",
 "Counting"); "Device not responding (last update N s ago)" after 5 s with no device contact while an exercise is open.
 The session table below lists exercises done so far (same columns as the doctor table).
@@ -198,16 +198,14 @@ Device (Bearer device token)
   and 409s, doctor assignment checks on every new route, wrong-role refusal.
 - Website: Playwright run of the demo script against the real backend with a synthetic device script speaking the
   new protocol (test only).
-- Firmware: compile with `arduino-cli` for `esp32:esp32:esp32doit-devkit-v1` if the toolchain can be downloaded here;
+- Firmware: compile with `arduino-cli` for `esp32:esp32:esp32doit-devkit-v1` (toolchain per §12);
   host-side g++ tests for `HeartCheckIn` with synthetic beat timings. Real-sensor behaviour is reported as unverified.
 
 ## 12. Toolchain note
 
-The Arduino and PlatformIO download hosts are blocked by this cloud environment's network policy. Compiling the
-sketch here requires the user to approve adding those hosts; otherwise the firmware is delivered uncompiled and
-the user compiles it in the Arduino IDE.
+The Arduino ESP32 toolchain must be installed locally (see `firmware/README.md`).
 
-## 13. Left to the builder
+## 13. Implementation details
 
-Component/file structure, exact copy text, CSS, test organisation, JSON field order, task stack sizes, poll timing
-defaults within the stated ranges.
+Left to implementation: component/file structure, exact copy text, CSS, test organisation, JSON field order,
+task stack sizes, poll timing defaults within the stated ranges.
