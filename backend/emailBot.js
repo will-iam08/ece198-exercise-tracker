@@ -6,7 +6,7 @@ import { bodyFields, fail } from './validate.js';
 //   1. a mail service POSTs to /api/bot/inbound-email with the shared secret,
 //      either as { from, subject, text } with an X-Bot-Secret header, or in
 //      CloudMailin's "JSON (Normalized)" format with "Authorization: Bearer
-//      <secret>", or
+//      <secret>" or ?secret=<secret> on the target URL (see requestSecret), or
 //   2. the optional IMAP poller reads unread mail from a mailbox.
 // All of them go through ingestEmail, so they store exactly the same thing.
 
@@ -62,26 +62,44 @@ export function secretMatches(given, expected) {
   return timingSafeEqual(digest(given), digest(expected));
 }
 
-// The secret from X-Bot-Secret, or from "Authorization: Bearer <secret>" for
-// services that can only set the Authorization header.
+// The secret, from the first of these that is present:
+//   1. the X-Bot-Secret header,
+//   2. "Authorization: Bearer <secret>", for services that can only set the
+//      Authorization header (any other Authorization scheme carries no secret),
+//   3. the target URL's ?secret= query parameter, for services that only keep
+//      the URL. A repeated ?secret= is ambiguous and is refused.
+// An explicit header always wins over the URL, so a wrong header is never
+// rescued by a correct query parameter. Other query parameters are ignored.
 export function requestSecret(req) {
   const header = req.get('X-Bot-Secret');
   if (header !== undefined) return header;
   const match = /^Bearer\s+(.+)$/i.exec(req.get('Authorization') ?? '');
-  return match ? match[1].trim() : undefined;
+  if (match) return match[1].trim();
+  const query = req.query?.secret;
+  return typeof query === 'string' ? query : undefined;
 }
 
-// "no X-Bot-Secret or Authorization header", "X-Bot-Secret header (12 characters)"
-// or "Authorization header, scheme \"Basic\", 20 characters after it".
+// Every credential the request carries, in the order requestSecret checks
+// them, by length only and never by value, e.g. "X-Bot-Secret header (12
+// characters)", "Authorization header, scheme \"Basic\", 20 characters after it;
+// secret query parameter (48 characters)" or, when there is none, "no
+// X-Bot-Secret header, Authorization header or secret query parameter".
 export function describeCredential(req) {
+  const parts = [];
   const header = req.get('X-Bot-Secret');
-  if (header !== undefined) return `X-Bot-Secret header (${header.length} characters)`;
+  if (header !== undefined) parts.push(`X-Bot-Secret header (${header.length} characters)`);
   const auth = req.get('Authorization');
-  if (auth === undefined) return 'no X-Bot-Secret or Authorization header';
-  const [scheme, ...rest] = auth.trim().split(/\s+/);
-  const value = rest.join(' ');
-  if (!value) return `Authorization header with no scheme (${scheme.length} characters)`;
-  return `Authorization header, scheme "${scheme.slice(0, 12)}", ${value.length} characters after it`;
+  if (auth !== undefined) {
+    const [scheme, ...rest] = auth.trim().split(/\s+/);
+    const value = rest.join(' ');
+    parts.push(value
+      ? `Authorization header, scheme "${scheme.slice(0, 12)}", ${value.length} characters after it`
+      : `Authorization header with no scheme (${scheme.length} characters)`);
+  }
+  const query = req.query?.secret;
+  if (typeof query === 'string') parts.push(`secret query parameter (${query.length} characters)`);
+  else if (Array.isArray(query)) parts.push(`secret query parameter given ${query.length} times`);
+  return parts.length ? parts.join('; ') : 'no X-Bot-Secret header, Authorization header or secret query parameter';
 }
 
 // CloudMailin's "JSON (Normalized)" body has `envelope` and `headers` objects
@@ -109,8 +127,9 @@ export function registerBotRoutes(app, { db, webhookSecret }) {
     // Without BOT_WEBHOOK_SECRET the route does not exist.
     if (!webhookSecret) fail(404, 'Route not found');
     if (!secretMatches(requestSecret(req), webhookSecret)) {
-      // Says what kind of credential arrived (never its value), so a mail
-      // service set up with the wrong header can be spotted in the log.
+      // Says what kind of credential arrived (never its value, and never the
+      // URL, whose query string may hold the secret), so a mail service set
+      // up with the wrong header can be spotted in the log.
       console.warn(`Email bot webhook rejected: ${describeCredential(req)}`);
       fail(401, 'Bot secret is missing or incorrect');
     }

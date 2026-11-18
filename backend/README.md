@@ -24,7 +24,7 @@ Credentials:
 - **Participant:** a user token whose account role is `participant` (a patient).
 - **Staff:** a user token whose role is `staff` (a doctor). Reading a participant's records also needs an assignment; without one the route answers **404**, the same as for a record that does not exist.
 - **Admin:** a user token whose role is `admin`. Admins can read every participant's records without an assignment.
-- **Bot:** the header `X-Bot-Secret: <BOT_WEBHOOK_SECRET>`, only on `POST /api/bot/inbound-email`.
+- **Bot:** `BOT_WEBHOOK_SECRET`, only on `POST /api/bot/inbound-email`, checked in this order: the header `X-Bot-Secret: <secret>`, then `Authorization: Bearer <secret>`, then the query parameter `?secret=<secret>` (for mail services that only keep the target URL; a repeated `secret` is refused). A header that is present wins, even if it is wrong. Prefer a header: query strings can appear in proxy and tunnel logs. The backend logs only which kind of credential a refused call carried and its length, never the value.
 - **Device:** `Authorization: Bearer <device_token>`, returned once when a participant adds a device. It works only on the two `/api/device/...` routes.
 
 ### Objects

@@ -442,21 +442,46 @@ port 3000, or by running the backend with `HOST=0.0.0.0` on a network the servic
 **A with CloudMailin (no domain or mailbox of your own needed).** CloudMailin's free plan (10,000 emails a month,
 up to 512 KB each, no card) gives you an address such as `abc123@cloudmailin.net` and posts every email to a URL.
 The webhook reads CloudMailin's **JSON (Normalized)** format directly and accepts the secret as
-`Authorization: Bearer <secret>`, because CloudMailin can only set the Authorization header.
+`Authorization: Bearer <secret>` (CloudMailin can only set the Authorization header) or, if CloudMailin will not keep
+that setting, as `?secret=<secret>` on the Target URL.
 
 1. Set `BOT_WEBHOOK_SECRET` as above, and `BOT_EMAIL_ADDRESS` to your CloudMailin address, in `backend/.env`. Restart
-   the backend.
+   the backend. Use a hex secret (`openssl rand -hex 24`) so it can go in a URL unchanged.
 2. Make the website reachable with a Cloudflare Tunnel (section 6). The Vite server forwards `/api` to the backend,
    so the one tunnel serves both.
 3. In CloudMailin, edit the address:
    - **Target URL**: `https://<your tunnel>.trycloudflare.com/api/bot/inbound-email`
    - **Format**: JSON (Normalized)
    - **Authorization Settings**: `Bearer <the BOT_WEBHOOK_SECRET value>`
+
+   **If the Authorization setting does not stay saved** (emails get `401` and the backend prints
+   `Email bot webhook rejected: no X-Bot-Secret header, Authorization header or secret query parameter`), put the
+   secret in the Target URL instead and leave Authorization empty:
+   - **Target URL**: `https://<your tunnel>.trycloudflare.com/api/bot/inbound-email?secret=<BOT_WEBHOOK_SECRET>`
+
+   CloudMailin no longer accepts `user:pass@` in the URL, so this query parameter is the way to do it. If both are
+   sent, the header wins: a wrong `X-Bot-Secret` or `Bearer` value is refused even when `?secret=` is right.
 4. Email the CloudMailin address from the address a patient signed up with.
 
 Pass: CloudMailin's message log shows status `201`, and the question appears in the doctor's inbox marked
 **By email**. A quick tunnel gets a new address every time it starts, so update the Target URL whenever you restart
 `cloudflared`. CloudMailin can only deliver while your laptop, the servers and the tunnel are running.
+
+You can check the Target URL yourself before emailing (replace both placeholders; a registered patient's address
+gives `201`, anything else `202`, a wrong secret `401`):
+
+```bash
+curl -s -X POST 'https://<your tunnel>.trycloudflare.com/api/bot/inbound-email?secret=<the secret>' \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"Demo Patient <PATIENT@example.com>","subject":"Question","text":"Is 120 bpm after the row okay?"}'
+```
+
+The backend never prints the secret: a refused call is logged as, for example,
+`Email bot webhook rejected: secret query parameter (48 characters)`. But a query string is part of the URL, and
+URLs can end up where headers do not: CloudMailin's own message log, the Vite dev server's `http proxy error` lines
+(printed when the backend is not running), and logs of any proxy or tunnel in between. So prefer the Authorization
+header whenever CloudMailin keeps it, and if the URL with the secret has been shared or logged somewhere you do not
+control, change `BOT_WEBHOOK_SECRET`, restart the backend and update the Target URL.
 
 **B. IMAP mailbox (the backend reads a mailbox itself).** Use a dedicated mailbox for the bot, ideally with an app
 password. In `backend/.env`:

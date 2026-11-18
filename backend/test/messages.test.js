@@ -111,7 +111,7 @@ test('CloudMailin bodies and Bearer secrets are read correctly', () => {
   assert.equal(requestSecret(req({ 'x-bot-secret': 'wrong', authorization: `Bearer ${secret}` })), 'wrong');
 
   // The rejection log describes the credential without revealing it.
-  assert.equal(describeCredential(req({})), 'no X-Bot-Secret or Authorization header');
+  assert.equal(describeCredential(req({})), 'no X-Bot-Secret header, Authorization header or secret query parameter');
   assert.equal(describeCredential(req({ 'x-bot-secret': 'abc' })), 'X-Bot-Secret header (3 characters)');
   assert.equal(describeCredential(req({ authorization: `Bearer ${secret}` })), `Authorization header, scheme "Bearer", ${secret.length} characters after it`);
   assert.equal(describeCredential(req({ authorization: secret })), `Authorization header with no scheme (${secret.length} characters)`);
@@ -154,6 +154,85 @@ test('the webhook accepts CloudMailin emails with a Bearer secret', async t => {
   const inbox = (await f.request('/api/doctor/messages', { token: doctor.token })).data;
   assert.equal(inbox.messages.length, 2);
   assert.ok(inbox.messages.every(message => message.source === 'email_bot'));
+});
+
+test('the secret can come from the ?secret= query parameter, after both headers', () => {
+  const req = (headers, query = {}) => ({ get: name => headers[name.toLowerCase()], query });
+  assert.equal(requestSecret(req({}, { secret })), secret);
+  assert.equal(requestSecret(req({}, { secret: '' })), '');
+  // Other query parameters are ignored.
+  assert.equal(requestSecret(req({}, { secret, utm_source: 'mail', page: '2' })), secret);
+  assert.equal(requestSecret(req({}, { token: secret })), undefined);
+  // A repeated ?secret= is ambiguous and is refused.
+  assert.equal(requestSecret(req({}, { secret: [secret, secret] })), undefined);
+  // Without a parsed query (no query string) there is simply no secret.
+  assert.equal(requestSecret({ get: () => undefined }), undefined);
+  // An explicit header wins over the query parameter, even when it is wrong.
+  assert.equal(requestSecret(req({ 'x-bot-secret': 'wrong' }, { secret })), 'wrong');
+  assert.equal(requestSecret(req({ 'x-bot-secret': '' }, { secret })), '');
+  assert.equal(requestSecret(req({ authorization: 'Bearer wrong' }, { secret })), 'wrong');
+  // A non-Bearer Authorization header carries no bot secret, so the query parameter is used.
+  assert.equal(requestSecret(req({ authorization: 'Basic YWJj' }, { secret })), secret);
+
+  // The rejection log reports a query secret by length only.
+  assert.equal(describeCredential(req({}, { secret })), `secret query parameter (${secret.length} characters)`);
+  assert.equal(describeCredential(req({}, { secret: [secret, 'x'] })), 'secret query parameter given 2 times');
+  assert.equal(describeCredential(req({}, { page: '2' })), 'no X-Bot-Secret header, Authorization header or secret query parameter');
+  assert.equal(describeCredential(req({ 'x-bot-secret': 'abc' }, { secret })),
+    `X-Bot-Secret header (3 characters); secret query parameter (${secret.length} characters)`);
+  assert.equal(describeCredential(req({ authorization: 'Basic YWJj' }, { secret })),
+    `Authorization header, scheme "Basic", 4 characters after it; secret query parameter (${secret.length} characters)`);
+  for (const value of [secret, [secret, secret]]) {
+    assert.ok(!describeCredential(req({ authorization: `Bearer ${secret}` }, { secret: value })).includes(secret));
+  }
+});
+
+test('the webhook accepts CloudMailin emails with the secret in the target URL', async t => {
+  const warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+  const f = await fixture(t, ':memory:', { bot: { webhookSecret: secret, address: 'abc123@cloudmailin.net' } });
+  const pat = await f.register('pat.smith@example.com');
+  const doctor = await f.staff('doc@example.com', [pat.user.id]);
+  const post = (query, body, { status = 201, headers = {} } = {}) => f.request(`/api/bot/inbound-email${query}`, {
+    method: 'POST', body, status, headers,
+  });
+  const count = () => f.db.prepare('SELECT COUNT(*) AS n FROM patient_messages').get().n;
+  const q = value => `?secret=${encodeURIComponent(value)}`;
+
+  // Missing, wrong, empty and repeated query secrets are refused.
+  await post('', cloudMailinEmail(), { status: 401 });
+  await post('?page=2', cloudMailinEmail(), { status: 401 });
+  await post(q('wrong-secret-0123456789'), cloudMailinEmail(), { status: 401 });
+  await post('?secret=', cloudMailinEmail(), { status: 401 });
+  await post(`${q(secret)}&${q(secret).slice(1)}`, cloudMailinEmail(), { status: 401 });
+  // A wrong header is not rescued by a correct query secret.
+  await post(q(secret), cloudMailinEmail(), { status: 401, headers: { 'X-Bot-Secret': 'wrong-secret-0123456789' } });
+  await post(q(secret), cloudMailinEmail(), { status: 401, headers: { Authorization: 'Bearer wrong-secret-0123456789' } });
+  assert.equal(count(), 0);
+
+  // The rejection log says what arrived without ever printing the secret.
+  assert.equal(warnings.length, 7);
+  assert.equal(warnings[0], 'Email bot webhook rejected: no X-Bot-Secret header, Authorization header or secret query parameter');
+  assert.equal(warnings[2], 'Email bot webhook rejected: secret query parameter (23 characters)');
+  assert.ok(warnings.every(line => !line.includes(secret)), warnings.join('\n'));
+
+  const stored = (await post(q(secret), cloudMailinEmail())).data;
+  assert.equal(stored.stored, true);
+  const row = f.db.prepare('SELECT * FROM patient_messages WHERE id = ?').get(stored.message_id);
+  assert.equal(row.participant_id, pat.user.id);
+  assert.equal(row.subject, 'Question about rows');
+  assert.equal(row.body, 'Is 120 bpm after the row okay?');
+  assert.equal(row.source, 'email_bot');
+  // Unknown query parameters around the secret change nothing.
+  assert.equal((await post(`?utm_source=mail${q(secret).replace('?', '&')}&x=1`, cloudMailinEmail())).data.stored, true);
+  // A non-Bearer Authorization header does not hide the query secret.
+  assert.equal((await post(q(secret), cloudMailinEmail(), { headers: { Authorization: 'Basic dXNlcjpwYXNz' } })).data.stored, true);
+
+  // Unknown senders are accepted but not stored, so CloudMailin does not retry.
+  assert.deepEqual((await post(q(secret), cloudMailinEmail({ from: 'Stranger <stranger@example.com>' }), { status: 202 })).data, { stored: false });
+  assert.equal(count(), 3);
+  assert.equal(warnings.length, 7);
+  assert.equal((await f.request('/api/doctor/messages', { token: doctor.token })).data.messages.length, 3);
 });
 
 test('the webhook does not exist without BOT_WEBHOOK_SECRET', async t => {
