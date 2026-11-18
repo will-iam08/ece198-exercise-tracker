@@ -7,17 +7,17 @@ const PAGE_SIZE = 10;
 const QUERY = { kind: 'timed' };
 
 // Workouts recorded before sessions existed. Read-only.
-export function TimedHistory({ refreshKey }) {
+export function TimedHistory({ path = '/api/workouts', refreshKey, owner = 'You have' }) {
   const { api } = useAuth();
-  const { data, error, page, setPage, retry } = usePagedList(api, '/api/workouts', QUERY, PAGE_SIZE, refreshKey);
+  const { data, error, page, setPage, retry } = usePagedList(api, path, QUERY, PAGE_SIZE, refreshKey);
 
   return (
     <>
       <h3>Earlier timed workouts</h3>
-      <p className="hint">Workouts from before workout sessions were added. They are shown for your records and cannot be changed.</p>
+      <p className="hint">Workouts from before workout sessions were added. They are read-only and cannot be changed.</p>
       {error && <ErrorMessage error={error} onRetry={retry} />}
       {!data && !error && <Loading label="Loading earlier workouts…" />}
-      {data && data.total === 0 && <p className="empty">You have no earlier timed workouts.</p>}
+      {data && data.total === 0 && <p className="empty">{owner} no earlier timed workouts.</p>}
       {data && data.total > 0 && (
         <>
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Earlier timed workouts">

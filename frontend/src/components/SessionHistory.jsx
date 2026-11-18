@@ -17,11 +17,13 @@ function summary(session) {
 
 // Workout sessions, newest first, each expandable to its exercise table; then
 // the read-only list of earlier timed workouts.
-export function SessionHistory({ devices, refreshKey }) {
+export function SessionHistory({
+  devices, refreshKey, path = '/api/sessions', timedPath, owner = 'You have', heading = 'History', headingLevel = 2,
+}) {
   const { api } = useAuth();
-  const { data, error, page, setPage, retry } = usePagedList(api, '/api/sessions', {}, PAGE_SIZE, refreshKey);
+  const { data, error, page, setPage, retry } = usePagedList(api, path, {}, PAGE_SIZE, refreshKey);
   const [expanded, setExpanded] = useState(() => new Set());
-  const deviceName = id => devices?.find(device => device.id === id)?.name ?? 'a removed device';
+  const deviceText = id => (devices ? ` · ${devices.find(device => device.id === id)?.name ?? 'a removed device'}` : '');
 
   function toggle(id) {
     setExpanded(previous => {
@@ -34,11 +36,13 @@ export function SessionHistory({ devices, refreshKey }) {
 
   return (
     <section aria-labelledby="history-heading">
-      <div id="history-heading"><ScreenHeading>History</ScreenHeading></div>
+      <div id="history-heading"><ScreenHeading level={headingLevel}>{heading}</ScreenHeading></div>
       <h3>Workout sessions</h3>
       {error && <ErrorMessage error={error} onRetry={retry} />}
-      {!data && !error && <Loading label="Loading your sessions…" />}
-      {data && data.total === 0 && <p className="empty">You have no workout sessions yet. Start one on the Session tab.</p>}
+      {!data && !error && <Loading label="Loading sessions…" />}
+      {data && data.total === 0 && <p className="empty">
+          {owner === 'You have' ? 'You have no workout sessions yet. Start one on the Session tab.' : `${owner} no workout sessions yet.`}
+        </p>}
       {data && data.total > 0 && (
         <>
           <ul className="list">
@@ -51,7 +55,7 @@ export function SessionHistory({ devices, refreshKey }) {
                   <span>
                     <strong className="block">{when}</strong>
                     <span className="hint block">
-                      {session.status === 'active' ? '● In progress' : '✓ Ended'} · {summary(session)} · {deviceName(session.device_id)}
+                      {session.status === 'active' ? '● In progress' : '✓ Ended'} · {summary(session)}{deviceText(session.device_id)}
                     </span>
                   </span>
                   <button
@@ -76,7 +80,7 @@ export function SessionHistory({ devices, refreshKey }) {
           <Pager data={data} page={page} pageSize={PAGE_SIZE} itemCount={data.sessions.length} onPage={setPage} label="Session pages" />
         </>
       )}
-      <TimedHistory refreshKey={refreshKey} />
+      <TimedHistory path={timedPath} refreshKey={refreshKey} owner={owner} />
     </section>
   );
 }

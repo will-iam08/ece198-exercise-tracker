@@ -1,5 +1,3 @@
-export const PRESET_EXERCISES = ['Bicep curls', 'Squats', 'Arm raises'];
-export const MAX_DURATION_SECONDS = 86400;
 
 // 75 -> "1:15", 3725 -> "1:02:05"
 export function formatClock(totalSeconds) {
@@ -36,33 +34,9 @@ export function formatTime(iso) {
   return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 }
 
-// "4 seconds ago", "3 minutes ago"
-export function formatAge(ms) {
-  const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'} ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  const hours = Math.round(minutes / 60);
-  return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-}
-
-// Planned minutes typed by the participant -> whole seconds for the API.
-export function minutesToSeconds(input) {
-  const text = String(input ?? '').trim();
-  if (!/^\d+(\.\d+)?$/.test(text)) return { error: 'Enter the planned time in minutes, for example 10.' };
-  const seconds = Math.round(Number(text) * 60);
-  if (seconds < 1) return { error: 'The planned time must be longer than zero.' };
-  if (seconds > MAX_DURATION_SECONDS) return { error: 'The planned time cannot be more than 1440 minutes (24 hours).' };
-  return { seconds };
-}
-
 export const STATUS_LABELS = {
   pending: 'Ready to start',
   active: 'In progress',
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
-
-export function isFinished(status) {
-  return status === 'completed' || status === 'cancelled';
-}
