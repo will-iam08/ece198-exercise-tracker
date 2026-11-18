@@ -5,7 +5,7 @@ the website and picks exercises one at a time (Arm Curl, Shoulder Press, Back Ro
 An ESP32 with a motion sensor, a pulse sensor and a small OLED takes a heart-rate check-in before the set, counts
 reps up to the target, freezes, then takes a check-in after it, and uploads each step over Wi-Fi. A doctor signs in
 separately and reviews their assigned patients' sessions: target, reps, before and after heart rate, times and status.
-An exercise is **Completed** only when every rep was counted and both heart-rate readings exist; otherwise it is
+An exercise is **Complete** only when every rep was counted and both heart-rate readings exist; otherwise it is
 **Incomplete**. Retried uploads are never counted twice.
 
 The proposed GitHub name for this repository is `motiontrack-esp32` (rename it in the repository's GitHub settings).

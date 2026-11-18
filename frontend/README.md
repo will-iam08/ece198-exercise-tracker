@@ -132,7 +132,7 @@ The full course demo is in [../docs/demo.md](../docs/demo.md).
   5 seconds while an exercise is open, the page shows "Device not responding".
 - **Heart rate** is only the before and after check-in values with their capture times. A missing value shows as
   "No reading" (or "Skipped" when the patient skipped it), never as 0 and never estimated.
-- **Status.** An exercise is **Completed** only when all target reps were counted and both check-ins exist.
+- **Status.** An exercise is **Complete** only when all target reps were counted and both check-ins exist.
   Otherwise it ends **Incomplete** (skipped or missing reading, stopped exercise, or session ended early).
 - **Progress** counts completed exercises and reps only, over a selectable range.
 - **Doctor view** uses the same polling for a live session and is read-only; an unassigned patient is not

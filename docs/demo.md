@@ -103,8 +103,8 @@ Press and Back Row: upper arm).
 
 Choose **Arm Curl**, target **5**, press **Start exercise**.
 
-Pass: the exercise shows three steps (Before BPM, Reps, After BPM) with Before BPM highlighted and the device status
-waiting for the device.
+Pass: the exercise shows three steps (Heart rate before, Reps, Heart rate after) with Heart rate before highlighted
+and the device status waiting for the device.
 
 **Part A (fake device).** In a third terminal:
 
@@ -123,13 +123,13 @@ Pass, in both parts, in this order:
 2. **Counting to the target.** The OLED shows `Arm Curl` and `1 / 5` up to `5 / 5`; the website shows the same count
    once a second. At 5 / 5 the count **freezes**: more motion does not change it.
 3. **After BPM.** The device asks for the finger again; the website's third step is highlighted. The reading is saved
-   (part A: 104) and the exercise shows **Completed** with reps 5 / 5, before BPM and after BPM.
+   (part A: 104) and the exercise shows **Complete** with reps 5 / 5, before BPM and after BPM.
 4. Part A only: the script printed `Server reply: duplicate` after the first rep, and the count on the website did not
    change (see step 11).
 
 ### Step 5: Back Row (upper arm) in the same session
 
-Press **Choose next exercise**, choose **Back Row**, target **4**, **Start exercise**.
+Under **Choose next exercise**, choose **Back Row**, enter target **4** and press **Start exercise**.
 
 Part A:
 
@@ -141,7 +141,7 @@ DEVICE_TOKEN='<token from step 2>' npm run fake-device -- --rep-ms 1000 --bpm-be
 Part B: attach the sensor to the upper arm as shown on the website, then follow the device.
 
 Pass: the same sequence happens with a **fresh** before-BPM (part A: 82), counting that stops at `4 / 4`, and its own
-after-BPM (part A: 110). The session table now lists two exercises, Arm Curl and Back Row, both Completed.
+after-BPM (part A: 110). The session table now lists two exercises, Arm Curl and Back Row, both Complete.
 
 ### Step 6: end the session
 
@@ -167,9 +167,9 @@ Pass: each command prints JSON; the first shows the new user with `"role": "staf
 Open `http://localhost:5173/doctor` (sign out of the patient first, or use a private window) and sign in as
 `doctor@example.com`.
 
-Pass: the dashboard lists the patient. Open the patient's session: a table shows **Arm Curl** and **Back Row**, each
-with target reps, recorded reps, before BPM with its time, after BPM with its time, start and end times and status
-Completed.
+Pass: the dashboard lists the patient. Press **View workouts** next to the patient, then **Show exercises** on the
+session: a table shows **Arm Curl** and **Back Row**, each with target reps, reps done, heart rate before with its time,
+heart rate after with its time, start and end times and status Complete.
 
 Check the sign-in entry points as well. Signing in at `/doctor` with the **patient** account, or at `/` with the
 **doctor** account, must be refused with "This is a patient account. Use the patient sign-in." (or the doctor
@@ -247,8 +247,8 @@ Incomplete and keeps what was recorded.
 
 This is the demo of retry safety: the same upload sent twice is stored once.
 
-**Part A.** Start a new exercise (**Choose next exercise**, any exercise, target **5**) and run the fake device with
-`--retry-last`:
+**Part A.** Start a new exercise (under **Choose next exercise**, pick any exercise, enter target **5** and press
+**Start exercise**) and run the fake device with `--retry-last`:
 
 ```bash
 cd frontend
