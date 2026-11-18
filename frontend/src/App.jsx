@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useAuth } from './auth.jsx';
 import { AuthScreen } from './components/AuthScreen.jsx';
 import { PatientApp } from './components/PatientApp.jsx';
@@ -16,13 +17,42 @@ const ROLE_NOTES = { staff: ' (doctor)', admin: ' (admin)' };
 
 export default function App() {
   const { user, logout } = useAuth();
+  const brandClicksRef = useRef([]);
+
+  useEffect(() => {
+    if (user || portal === 'admin') return undefined;
+    function onKeyDown(event) {
+      if (!event.altKey || !event.shiftKey) return;
+      if (event.code !== 'KeyA' && event.key?.toLowerCase() !== 'a') return;
+      const target = event.target;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      event.preventDefault();
+      window.location.assign('/admin');
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [user]);
+
+  function handleBrandClick() {
+    if (user || portal === 'admin') return;
+    const now = Date.now();
+    const recent = brandClicksRef.current.filter(timestamp => now - timestamp <= 3000);
+    recent.push(now);
+    brandClicksRef.current = recent;
+    if (recent.length >= 5) {
+      brandClicksRef.current = [];
+      window.location.assign('/admin');
+    }
+  }
+
   return (
     <>
       <a className="skip-link" href="#main">Skip to main content</a>
       <header className="site-header">
         <div className="site-header-inner">
           <div className="brand">
-            <span className="brand-mark"><Icon name="pulse" /></span>
+            <span className="brand-mark" onClick={handleBrandClick}><Icon name="pulse" /></span>
             <h1>MotionTrack</h1>
             <p className="portal-label">{PORTAL_LABELS[portal]}</p>
           </div>
