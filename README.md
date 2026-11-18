@@ -8,7 +8,6 @@ separately and reviews their assigned patients' sessions: target, reps, before a
 An exercise is **Complete** only when every rep was counted and both heart-rate readings exist; otherwise it is
 **Incomplete**. Retried uploads are never counted twice.
 
-The proposed GitHub name for this repository is `motiontrack-esp32` (rename it in the repository's GitHub settings).
 The website says "patient" and "doctor"; the API, CLI and database call those roles `participant` and `staff`.
 
 ## Layout
@@ -17,7 +16,7 @@ The website says "patient" and "doctor"; the API, CLI and database call those ro
 backend/    Node 24 + Express + SQLite API, device protocol, doctor-management CLI, tests
 frontend/   React + Vite website: patient at /, doctor at /doctor; synthetic test device script
 firmware/   ESP32 Arduino sketch (MotionTrack/), host tests, wiring and flashing guide
-docs/       demo.md (setup and demo script) and design/ (the approved design)
+docs/       user-guide.md (using the website), demo.md (setup and demo script), design/ (the approved design)
 ```
 
 ## Quick start (no hardware)
@@ -40,12 +39,14 @@ test -f .env.local || cp .env.example .env.local
 npm run dev
 ```
 
-Open `http://localhost:5173/` (patient) or `http://localhost:5173/doctor` (doctor), and use the synthetic test
-device as described in [docs/demo.md](docs/demo.md). Run the checks with `cd backend && npm test`,
+Open `http://localhost:5173/` (patient) or `http://localhost:5173/doctor` (doctor). The
+[user guide](docs/user-guide.md) explains each screen; to try it without hardware, use the synthetic test device as
+described in [docs/demo.md](docs/demo.md). Run the checks with `cd backend && npm test`,
 `cd frontend && npm test && npm run build` and `bash firmware/tests/run.sh`.
 
 ## Documentation
 
+- [Using the website](docs/user-guide.md): patients, doctors, and setting up doctor accounts
 - [Demo setup and script](docs/demo.md): exact steps, with the test device or the real ESP32
 - [Backend: API, device protocol, schema, migration, CLI](backend/README.md)
 - [Frontend: website setup, test device, behaviour](frontend/README.md)
