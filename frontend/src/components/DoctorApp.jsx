@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
-import { ErrorMessage, Loading, ScreenHeading, StatusBadge } from './common.jsx';
+import { Avatar, ErrorMessage, Icon, LiveBadge, Loading, ScreenHeading } from './common.jsx';
 import { PatientDetail } from './PatientDetail.jsx';
 
 const REFRESH_MS = 5000;
@@ -60,11 +60,28 @@ export function DoctorApp() {
     );
   }
 
+  const liveCount = patients?.filter(patient => patient.active_session_id).length ?? 0;
+
   return (
     <div className="card">
       <section aria-labelledby="patients-heading">
-        <div id="patients-heading"><ScreenHeading>Your patients</ScreenHeading></div>
+        <div className="console-head">
+          <div id="patients-heading"><ScreenHeading>Your patients</ScreenHeading></div>
+          <span className="badge badge-readonly"><Icon name="lock" />Read only</span>
+        </div>
         <p>This list shows only the patients assigned to you. You can view their workouts but not change them.</p>
+        {patients?.length > 0 && (
+          <div className="stat-strip" role="group" aria-label="Summary">
+            <div className="tile">
+              <p className="tile-label"><Icon name="users" />Assigned patients</p>
+              <p className="tile-value">{patients.length}</p>
+            </div>
+            <div className="tile">
+              <p className="tile-label"><Icon name="pulse" />Live now</p>
+              <p className="tile-value">{liveCount}</p>
+            </div>
+          </div>
+        )}
         {error && patients && (
           <p className="alert alert-warning" role="status">
             <span aria-hidden="true">⚠ </span><strong>Could not refresh the list.</strong> Trying again automatically.
@@ -75,13 +92,21 @@ export function DoctorApp() {
         {!patients && !error && <Loading label="Loading your patients…" />}
         {patients?.length === 0 && <p className="empty">No patients are assigned to you yet.</p>}
         {patients?.length > 0 && (
-          <ul className="list">
+          <ul className="list roster" aria-label="Assigned patients">
+            <li className="roster-head" aria-hidden="true"><span>Patient</span><span>Status</span><span /></li>
             {patients.map(patient => (
-              <li key={patient.id} className="list-item">
+              <li key={patient.id} className={patient.active_session_id ? 'roster-row roster-row-live' : 'roster-row'}>
+                <span className="person">
+                  <Avatar name={patient.name} />
+                  <span className="person-text">
+                    <strong className="block">{patient.name}</strong>
+                    <span className="hint block">{patient.email}</span>
+                  </span>
+                </span>
                 <span>
-                  <strong>{patient.name}</strong>
-                  <span className="hint block">{patient.email}</span>
-                  {patient.active_session_id && <span className="block"><StatusBadge status="active" label="Live now" /></span>}
+                  {patient.active_session_id
+                    ? <LiveBadge />
+                    : <span className="idle-text"><Icon name="clock" />No session running</span>}
                 </span>
                 <button
                   type="button"

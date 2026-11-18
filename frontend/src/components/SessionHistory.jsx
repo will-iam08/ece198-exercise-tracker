@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { usePagedList } from '../hooks/usePagedList.js';
 import { formatDateTime } from '../lib/format.js';
-import { ErrorMessage, Loading, Pager, ScreenHeading } from './common.jsx';
+import { ErrorMessage, Loading, Pager, ScreenHeading, StatusBadge } from './common.jsx';
 import { SessionTable } from './SessionTable.jsx';
 import { TimedHistory } from './TimedHistory.jsx';
 
@@ -52,10 +52,13 @@ export function SessionHistory({
               const when = formatDateTime(session.created_at);
               return (
                 <li key={session.id} className="list-item session-item">
-                  <span>
+                  <span className="session-row-main">
                     <strong className="block">{when}</strong>
-                    <span className="hint block">
-                      {session.status === 'active' ? '● In progress' : '✓ Ended'} · {summary(session)}{deviceText(session.device_id)}
+                    <span className="session-meta">
+                      {session.status === 'active'
+                        ? <StatusBadge status="active" label="In progress" />
+                        : <StatusBadge status="completed" label="Ended" />}
+                      <span>{summary(session)}{deviceText(session.device_id)}</span>
                     </span>
                   </span>
                   <button

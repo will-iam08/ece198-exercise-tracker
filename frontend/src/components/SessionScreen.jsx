@@ -4,7 +4,7 @@ import { useAuth } from '../auth.jsx';
 import { useSession } from '../hooks/useSession.js';
 import { formatDateTime } from '../lib/format.js';
 import { bpmLabel, isOpen, statusLabel, withWorkout } from '../lib/exerciseStatus.js';
-import { ErrorMessage, Loading, ScreenHeading } from './common.jsx';
+import { ErrorMessage, Icon, Loading, ScreenHeading } from './common.jsx';
 import { ExercisePicker } from './ExercisePicker.jsx';
 import { LiveExercise } from './LiveExercise.jsx';
 import { SessionTable } from './SessionTable.jsx';
@@ -279,6 +279,7 @@ export function SessionScreen({ devices, devicesError, reloadDevices, selectedDe
     body = (
       <>
         <p className="context-line">
+          <Icon name="device" />
           Session started {formatDateTime(session.created_at)} on <strong>{deviceName(session.device_id)}</strong>.
         </p>
         {disconnected && (

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { parseTargetReps } from '../lib/exerciseStatus.js';
-import { ErrorMessage } from './common.jsx';
+import { ErrorMessage, Icon } from './common.jsx';
 
 // Used until the list arrives from the server (same values as GET /api/exercises).
 const DEFAULT_EXERCISES = [
@@ -55,15 +55,16 @@ export function ExercisePicker({ sessionId, heading, onStarted, onConflict }) {
 
   return (
     <form onSubmit={onSubmit} noValidate aria-labelledby="picker-heading">
-      <h3 id="picker-heading">{heading}</h3>
+      <h3 id="picker-heading" className="picker-head">{heading}</h3>
       <fieldset>
         <legend>1. Choose an exercise</legend>
         <div className="exercise-cards">
           {exercises.map(exercise => (
             <label key={exercise.id} className={choice === exercise.id ? 'exercise-card exercise-card-selected' : 'exercise-card'}>
               <input type="radio" name="exercise" value={exercise.id} checked={choice === exercise.id} onChange={() => { setChoice(exercise.id); setError(''); }} />
-              <span>
-                <strong className="block">{exercise.name}</strong>
+              <span className="exercise-card-body">
+                <strong className="exercise-card-title"><Icon name="dumbbell" />{exercise.name}</strong>
+                <span className="placement" aria-hidden="true"><Icon name="device" />{exercise.placement}</span>
                 <span className="hint block">Wear the device on your {exercise.placement}.</span>
               </span>
             </label>

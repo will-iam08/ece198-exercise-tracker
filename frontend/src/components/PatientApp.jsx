@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
+import { Icon } from './common.jsx';
 import { DevicesPanel } from './DevicesPanel.jsx';
 import { RepProgress } from './RepProgress.jsx';
 import { SessionHistory } from './SessionHistory.jsx';
 import { SessionScreen } from './SessionScreen.jsx';
 
 const VIEWS = [
-  { id: 'session', label: 'Session' },
-  { id: 'history', label: 'History' },
-  { id: 'progress', label: 'Progress' },
-  { id: 'devices', label: 'My devices' },
+  { id: 'session', label: 'Session', icon: 'pulse' },
+  { id: 'history', label: 'History', icon: 'history' },
+  { id: 'progress', label: 'Progress', icon: 'chart' },
+  { id: 'devices', label: 'My devices', icon: 'device' },
 ];
 
 export function PatientApp() {
@@ -41,7 +42,7 @@ export function PatientApp() {
       <nav className="nav" aria-label="Main sections">
         {VIEWS.map(item => (
           <button key={item.id} type="button" className="nav-button" aria-current={view === item.id ? 'page' : undefined} onClick={() => setView(item.id)}>
-            {item.label}
+            <Icon name={item.icon} />{item.label}
           </button>
         ))}
       </nav>

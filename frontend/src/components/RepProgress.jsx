@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { buildBuckets, filterDaily, METRICS, RANGES, sumRows } from '../lib/progress.js';
 import { ProgressBarChart } from './Charts.jsx';
-import { ErrorMessage, Loading, ScreenHeading } from './common.jsx';
+import { ErrorMessage, Icon, Loading, ScreenHeading } from './common.jsx';
 
 const EXERCISE_NAMES = ['Arm Curl', 'Shoulder Press', 'Back Row'];
 
@@ -71,8 +71,8 @@ export function RepProgress({ refreshKey }) {
       {view && (
         <>
           <div className="tiles" role="group" aria-label={`Totals for ${rangeLabel}`}>
-            <div className="tile"><p className="tile-label">Completed exercises</p><p className="tile-value">{view.totals.workouts}</p></div>
-            <div className="tile"><p className="tile-label">Total repetitions</p><p className="tile-value">{view.totals.repetitions}</p></div>
+            <div className="tile"><p className="tile-label"><Icon name="check" />Completed exercises</p><p className="tile-value">{view.totals.workouts}</p></div>
+            <div className="tile"><p className="tile-label"><Icon name="dumbbell" />Total repetitions</p><p className="tile-value">{view.totals.repetitions}</p></div>
           </div>
           {view.totals.workouts === 0 ? (
             <p className="empty">No completed exercises in this time range{exercise ? ` for ${exercise}` : ''} yet.</p>
