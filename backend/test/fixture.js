@@ -6,9 +6,9 @@ import { hashPassword } from '../security.js';
 
 export const password = 'exercise-test-password';
 
-export async function fixture(t, path = ':memory:') {
+export async function fixture(t, path = ':memory:', options = {}) {
   const db = createDatabase(path);
-  const app = createApp({ db, corsOrigin: 'http://localhost:5173' });
+  const app = createApp({ db, corsOrigin: 'http://localhost:5173', ...options });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve, reject) => {
     server.once('listening', resolve);
@@ -46,15 +46,20 @@ export async function fixture(t, path = ':memory:') {
       method: 'POST', token, body: { device_id, exercise_name, target_duration_seconds: 120 }, status: 201,
     })).data.workout;
   }
-  async function staff(email = 'staff@example.com', assignTo = []) {
+  async function account(role, email, name) {
     const id = randomUUID();
     db.prepare('INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)')
-      .run(id, 'Exercise staff', email, await hashPassword(password), 'staff', new Date().toISOString());
-    for (const participantId of assignTo) {
-      db.prepare('INSERT INTO staff_participants (staff_id,participant_id) VALUES (?,?)').run(id, participantId);
-    }
+      .run(id, name, email, await hashPassword(password), role, new Date().toISOString());
     const login = (await request('/api/auth/login', { method: 'POST', body: { email, password } })).data;
     return { id, ...login };
   }
-  return { db, base, request, register, device, workout, staff, close };
+  async function staff(email = 'staff@example.com', assignTo = []) {
+    const login = await account('staff', email, 'Exercise staff');
+    for (const participantId of assignTo) {
+      db.prepare('INSERT INTO staff_participants (staff_id,participant_id) VALUES (?,?)').run(login.id, participantId);
+    }
+    return login;
+  }
+  const admin = (email = 'admin@example.com') => account('admin', email, 'Site admin');
+  return { db, base, request, register, device, workout, staff, admin, close };
 }

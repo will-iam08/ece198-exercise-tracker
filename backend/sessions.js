@@ -5,7 +5,7 @@ import { bodyFields, fail, integer, queryFields, queryInteger } from './validate
 const sessionStatuses = ['active', 'ended'];
 const OPEN = "status IN ('pending', 'active')";
 
-export function registerSessionRoutes(app, { db, transaction, userAuth, participant, staff, assigned }) {
+export function registerSessionRoutes(app, { db, transaction, userAuth, participant, staffOrAdmin, canView }) {
   function withWorkouts(session) {
     const workouts = db.prepare("SELECT * FROM workouts WHERE session_id = ? AND kind = 'reps' ORDER BY created_at ASC, id ASC").all(session.id);
     return { ...session, workouts };
@@ -23,8 +23,9 @@ export function registerSessionRoutes(app, { db, transaction, userAuth, particip
 
   function readableSession(req) {
     const session = getSession(req.params.id);
-    if (!session || !(session.participant_id === req.user.id ||
-      (req.user.role === 'staff' && assigned(req.user.id, session.participant_id)))) fail(404, 'Session not found');
+    if (!session || !(session.participant_id === req.user.id || canView(req.user, session.participant_id))) {
+      fail(404, 'Session not found');
+    }
     return session;
   }
 
@@ -71,8 +72,8 @@ export function registerSessionRoutes(app, { db, transaction, userAuth, particip
 
   app.get('/api/sessions', userAuth, participant, (req, res) => res.json(sessionList(req.user.id, req.query)));
 
-  app.get('/api/participants/:id/sessions', userAuth, staff, (req, res) => {
-    if (!assigned(req.user.id, req.params.id)) fail(404, 'Participant not found');
+  app.get('/api/participants/:id/sessions', userAuth, staffOrAdmin, (req, res) => {
+    if (!canView(req.user, req.params.id)) fail(404, 'Participant not found');
     res.json(sessionList(req.params.id, req.query));
   });
 

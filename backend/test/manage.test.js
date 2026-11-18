@@ -84,3 +84,26 @@ test('file database persists data and can initialize the same schema again', (t)
   assert.equal(db.prepare('SELECT email FROM users WHERE id = ?').get('persisted').email, 'persisted@example.com');
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
 });
+
+test('create-admin uses ADMIN_PASSWORD, falls back to STAFF_PASSWORD, and keeps staff commands working', async (t) => {
+  const db = createDatabase(':memory:');
+  t.after(() => db.close());
+  await assert.rejects(
+    runManage(['create-admin', 'admin@example.com', 'Site admin'], { db, password: undefined, adminPassword: 'short' }),
+    /ADMIN_PASSWORD/
+  );
+  const { user: admin } = await runManage(['create-admin', 'ADMIN@example.com', 'Site admin'],
+    { db, password: 'unused-staff-password', adminPassword: password });
+  assert.equal(admin.role, 'admin');
+  assert.equal(admin.email, 'admin@example.com');
+  const stored = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(admin.id).password_hash;
+  assert.equal(await verifyPassword(password, stored), true);
+  const { user: fallback } = await runManage(['create-admin', 'second@example.com', 'Second admin'],
+    { db, password, adminPassword: undefined });
+  assert.equal(fallback.role, 'admin');
+  await assert.rejects(runManage(['create-admin', admin.email, 'Again'], { db, password }), /already exists/);
+  await assert.rejects(runManage(['assign', admin.email, admin.email], { db }), /staff account/);
+  const { user: staff } = await runManage(['create-staff', 'doc@example.com', 'Doctor'], { db, password });
+  assert.equal(staff.role, 'staff');
+  await assert.rejects(runManage(['create-boss', 'x@example.com', 'X'], { db, password }), /create-admin/);
+});

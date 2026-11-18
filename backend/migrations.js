@@ -1,4 +1,4 @@
-export const LATEST_VERSION = 2;
+export const LATEST_VERSION = 3;
 
 const SESSIONS_SQL = `
 CREATE TABLE exercise_sessions (
@@ -100,7 +100,67 @@ function toVersion2(db) {
   db.exec(EVENTS_SQL);
 }
 
-const MIGRATIONS = [{ version: 2, up: toVersion2 }];
+// Version 3: an admin role, doctor care plans and the patient message inbox.
+// SQLite cannot change a CHECK constraint in place, so users is rebuilt the
+// same way as workouts in version 2. Its rows keep their ids, so every table
+// that references users(id) still points at the same people.
+const USERS_NEW_SQL = `
+CREATE TABLE users_new (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 80),
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(email) BETWEEN 3 AND 254),
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('participant', 'staff', 'admin')),
+  created_at TEXT NOT NULL
+) STRICT;
+
+INSERT INTO users_new (id, name, email, password_hash, role, created_at)
+SELECT id, name, email, password_hash, role, created_at FROM users;
+`;
+
+const PLANS_SQL = `
+CREATE TABLE patient_plans (
+  participant_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  staff_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  notes TEXT NOT NULL DEFAULT '' CHECK (length(notes) <= 1000),
+  arm_curl_reps INTEGER CHECK (arm_curl_reps IS NULL OR arm_curl_reps BETWEEN 1 AND 50),
+  shoulder_press_reps INTEGER CHECK (shoulder_press_reps IS NULL OR shoulder_press_reps BETWEEN 1 AND 50),
+  back_row_reps INTEGER CHECK (back_row_reps IS NULL OR back_row_reps BETWEEN 1 AND 50),
+  target_bpm_min INTEGER CHECK (target_bpm_min IS NULL OR target_bpm_min BETWEEN 30 AND 220),
+  target_bpm_max INTEGER CHECK (target_bpm_max IS NULL OR target_bpm_max BETWEEN 30 AND 220),
+  updated_at TEXT NOT NULL,
+  CHECK (target_bpm_min IS NULL OR target_bpm_max IS NULL OR target_bpm_min <= target_bpm_max)
+) STRICT;
+`;
+
+const MESSAGES_SQL = `
+CREATE TABLE patient_messages (
+  id TEXT PRIMARY KEY,
+  participant_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sender_email TEXT NOT NULL,
+  subject TEXT NOT NULL CHECK (length(subject) <= 200),
+  body TEXT NOT NULL CHECK (length(trim(body)) BETWEEN 1 AND 4000),
+  source TEXT NOT NULL DEFAULT 'email_bot' CHECK (source IN ('email_bot', 'portal')),
+  is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
+  doctor_reply TEXT CHECK (doctor_reply IS NULL OR length(doctor_reply) <= 4000),
+  replied_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  replied_at TEXT,
+  received_at TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX idx_patient_messages_participant
+  ON patient_messages(participant_id, received_at DESC);
+`;
+
+function toVersion3(db) {
+  db.exec(USERS_NEW_SQL);
+  db.exec('DROP TABLE users');
+  db.exec('ALTER TABLE users_new RENAME TO users');
+  db.exec(PLANS_SQL);
+  db.exec(MESSAGES_SQL);
+}
+
+const MIGRATIONS = [{ version: 2, up: toVersion2 }, { version: 3, up: toVersion3 }];
 
 function currentVersion(db) {
   const { user_version: version } = db.prepare('PRAGMA user_version').get();
@@ -109,10 +169,11 @@ function currentVersion(db) {
   return hasUsers ? 1 : 0;
 }
 
-export function migrate(db) {
+// `target` is only lowered by tests that need a database at an older version.
+export function migrate(db, target = LATEST_VERSION) {
   let version = currentVersion(db);
   for (const migration of MIGRATIONS) {
-    if (migration.version <= version) continue;
+    if (migration.version <= version || migration.version > target) continue;
     // Table rebuilds need foreign keys off, or dropping workouts would cascade into its readings.
     // The pragma is a no-op inside a transaction, so it is set around BEGIN/COMMIT.
     db.exec('PRAGMA foreign_keys = OFF');

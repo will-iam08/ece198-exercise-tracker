@@ -11,25 +11,36 @@ function email(value) {
   return value.trim().toLowerCase();
 }
 
-export async function runManage(args, { db, password = process.env.STAFF_PASSWORD }) {
+const USAGE = 'Usage: create-staff EMAIL NAME | create-admin EMAIL NAME | '
+  + 'assign STAFF_EMAIL PARTICIPANT_EMAIL | unassign STAFF_EMAIL PARTICIPANT_EMAIL';
+
+// create-staff reads STAFF_PASSWORD; create-admin reads ADMIN_PASSWORD and
+// falls back to STAFF_PASSWORD.
+export async function runManage(args, {
+  db, password = process.env.STAFF_PASSWORD, adminPassword = process.env.ADMIN_PASSWORD,
+}) {
   const [command, first, second] = args;
-  if (args.length !== 3 || !['create-staff', 'assign', 'unassign'].includes(command)) {
-    throw new Error('Usage: create-staff EMAIL NAME | assign STAFF_EMAIL PARTICIPANT_EMAIL | unassign STAFF_EMAIL PARTICIPANT_EMAIL');
+  if (args.length !== 3 || !['create-staff', 'create-admin', 'assign', 'unassign'].includes(command)) {
+    throw new Error(USAGE);
   }
   const firstEmail = email(first);
-  if (command === 'create-staff') {
+  if (command === 'create-staff' || command === 'create-admin') {
+    const admin = command === 'create-admin';
     const name = second.trim();
     if (name.length < 1 || name.length > 80) throw new Error('Name must contain 1 to 80 characters.');
     if (db.prepare('SELECT id FROM users WHERE email = ?').get(firstEmail)) {
       throw new Error('An account with this email already exists; this command cannot change its role.');
     }
-    if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
-      throw new Error('Set STAFF_PASSWORD to a password containing 12 to 128 characters.');
+    const chosen = admin ? (adminPassword || password) : password;
+    if (typeof chosen !== 'string' || chosen.length < 12 || chosen.length > 128) {
+      throw new Error(admin
+        ? 'Set ADMIN_PASSWORD (or STAFF_PASSWORD) to a password containing 12 to 128 characters.'
+        : 'Set STAFF_PASSWORD to a password containing 12 to 128 characters.');
     }
     const user = {
-      id: randomUUID(), name, email: firstEmail, role: 'staff', created_at: new Date().toISOString()
+      id: randomUUID(), name, email: firstEmail, role: admin ? 'admin' : 'staff', created_at: new Date().toISOString()
     };
-    const passwordHash = await hashPassword(password);
+    const passwordHash = await hashPassword(chosen);
     db.prepare('INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(user.id, user.name, user.email, passwordHash, user.role, user.created_at);
     return { user: publicUser(user) };

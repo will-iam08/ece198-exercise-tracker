@@ -3,26 +3,30 @@ import { randomUUID } from 'node:crypto';
 import { hashPassword, verifyPassword, hashToken, newToken, publicUser } from './security.js';
 import { EXERCISES } from './exercises.js';
 import { registerSessionRoutes } from './sessions.js';
+import { registerAdminRoutes } from './admin.js';
+import { registerPlanRoutes } from './plans.js';
+import { registerMessageRoutes } from './messages.js';
+import { registerBotRoutes } from './emailBot.js';
+import { DEFAULT_CORS_ORIGINS, parseCorsOrigins } from './config.js';
 import { applyDeviceEvent } from './deviceEvents.js';
-import { bodyFields, fail, integer, queryFields, queryInteger, text } from './validate.js';
+import { bodyFields, email, fail, integer, password, queryFields, queryInteger, text } from './validate.js';
 
 const legacyExercises = ['Bicep curls', 'Squats', 'Arm raises'];
 const statuses = ['pending', 'active', 'completed', 'cancelled', 'incomplete'];
 const kinds = ['timed', 'reps'];
 const deviceFields = 'id, name, created_at, last_seen_at';
 
-function email(value) {
-  const normalized = text(value, 'email', 254).toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) fail(400, 'Invalid email address');
-  return normalized;
-}
+const portalRoles = { patient: 'participant', doctor: 'staff', admin: 'admin' };
+const wrongPortal = {
+  participant: 'This is a patient account. Use the patient sign-in.',
+  staff: 'This is a doctor account. Use the doctor sign-in.',
+  admin: 'This is an admin account. Use the admin sign-in.',
+};
 
-function password(value) {
-  if (typeof value !== 'string' || value.length < 12 || value.length > 128) fail(400, 'password must contain 12-128 characters');
-  return value;
-}
-
-export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
+// corsOrigin: one origin, a comma-separated list, or an array of origins.
+// bot: { webhookSecret, address } for the email bot (both optional).
+export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {} }) {
+  const allowedOrigins = new Set(parseCorsOrigins(corsOrigin));
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -30,14 +34,16 @@ export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
     res.set('X-Content-Type-Options', 'nosniff');
     if (req.headers.origin) {
       res.vary('Origin');
-      if (req.headers.origin !== corsOrigin) return res.status(403).json({ error: { message: 'Origin is not allowed' } });
-      res.set('Access-Control-Allow-Origin', corsOrigin);
+      if (!allowedOrigins.has(req.headers.origin)) return res.status(403).json({ error: { message: 'Origin is not allowed' } });
+      res.set('Access-Control-Allow-Origin', req.headers.origin);
       res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-      res.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
+  // Forwarded emails can be longer than any form on the site; the bot trims them on ingest.
+  app.use('/api/bot/inbound-email', express.json({ limit: '256kb' }));
   app.use(express.json({ limit: '16kb' }));
 
   function transaction(fn) {
@@ -76,6 +82,17 @@ export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
     next();
   }
 
+  function admin(req, res, next) {
+    if (req.user.role !== 'admin') fail(403, 'Admin access required');
+    next();
+  }
+
+  // Doctors read their assigned patients; admins read everyone.
+  function staffOrAdmin(req, res, next) {
+    if (req.user.role !== 'staff' && req.user.role !== 'admin') fail(403, 'Staff access required');
+    next();
+  }
+
   function deviceAuth(req, res, next) {
     req.device = db.prepare('SELECT * FROM devices WHERE token_hash = ? AND revoked_at IS NULL').get(bearer(req));
     if (!req.device) fail(401, 'Device token is invalid or revoked');
@@ -111,15 +128,25 @@ export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
     return db.prepare('SELECT 1 FROM staff_participants WHERE staff_id = ? AND participant_id = ?').get(staffId, participantId);
   }
 
+  // Whether `user` may read another person's records: an assigned doctor, or an admin.
+  function canView(user, participantId) {
+    if (user.role === 'staff') return Boolean(assigned(user.id, participantId));
+    if (user.role === 'admin') {
+      return Boolean(db.prepare("SELECT 1 FROM users WHERE id = ? AND role = 'participant'").get(participantId));
+    }
+    return false;
+  }
+
   function readableWorkout(req) {
     const workout = db.prepare('SELECT * FROM workouts WHERE id = ?').get(req.params.id);
-    if (!workout || !(workout.participant_id === req.user.id ||
-      (req.user.role === 'staff' && assigned(req.user.id, workout.participant_id)))) fail(404, 'Workout not found');
+    if (!workout || !(workout.participant_id === req.user.id || canView(req.user, workout.participant_id))) {
+      fail(404, 'Workout not found');
+    }
     return workout;
   }
 
   function assignedParticipant(req, res, next) {
-    if (!assigned(req.user.id, req.params.id)) fail(404, 'Participant not found');
+    if (!canView(req.user, req.params.id)) fail(404, 'Participant not found');
     next();
   }
 
@@ -197,12 +224,14 @@ export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
     const userEmail = email(req.body.email);
     const userPassword = password(req.body.password);
     const portal = req.body.portal;
-    if (portal !== undefined && !['patient', 'doctor'].includes(portal)) fail(400, 'portal must be patient or doctor');
+    if (portal !== undefined && !Object.hasOwn(portalRoles, portal)) fail(400, 'portal must be patient, doctor or admin');
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(userEmail);
     const valid = await verifyPassword(userPassword, user ? user.password_hash : await dummyHash);
     if (!user || !valid) fail(401, 'Invalid email or password');
-    if (portal === 'doctor' && user.role !== 'staff') fail(403, 'This is a patient account. Use the patient sign-in.');
-    if (portal === 'patient' && user.role !== 'participant') fail(403, 'This is a doctor account. Use the doctor sign-in.');
+    // Each sign-in page accepts only its own account type; no session is created otherwise.
+    if (portal !== undefined && user.role !== portalRoles[portal]) {
+      fail(403, wrongPortal[user.role] ?? 'This account cannot sign in here.');
+    }
     res.json(session(user));
   });
 
@@ -294,12 +323,17 @@ export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
       .map(row => ({ ...publicUser(row), active_session_id: row.active_session_id }));
     res.json({ participants });
   });
-  app.get('/api/participants/:id/workouts', userAuth, staff, assignedParticipant,
+  app.get('/api/participants/:id/workouts', userAuth, staffOrAdmin, assignedParticipant,
     (req, res) => res.json(workoutList(req.params.id, req.query)));
-  app.get('/api/participants/:id/progress', userAuth, staff, assignedParticipant,
+  app.get('/api/participants/:id/progress', userAuth, staffOrAdmin, assignedParticipant,
     (req, res) => res.json(progress(req.params.id, req.query)));
 
-  registerSessionRoutes(app, { db, transaction, userAuth, participant, staff, assigned });
+  const shared = { db, transaction, userAuth, participant, staff, admin, staffOrAdmin, assigned, canView, assignedParticipant };
+  registerSessionRoutes(app, shared);
+  registerAdminRoutes(app, shared);
+  registerPlanRoutes(app, shared);
+  registerMessageRoutes(app, { ...shared, botAddress: bot.address || null });
+  registerBotRoutes(app, { db, webhookSecret: bot.webhookSecret });
 
   app.get('/api/device/workout', deviceAuth, (req, res) => {
     const workout = db.prepare("SELECT * FROM workouts WHERE device_id = ? AND status IN ('pending', 'active')").get(req.device.id);

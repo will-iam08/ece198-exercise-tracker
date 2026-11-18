@@ -1,23 +1,38 @@
 import { createDatabase } from './db.js';
 import { createApp } from './app.js';
+import { DEFAULT_CORS_ORIGINS, imapSettings, parseCorsOrigins } from './config.js';
+import { startImapPoller } from './emailBot.js';
 
 const port = Number(process.env.PORT || 3000);
+// 127.0.0.1 keeps the API on this computer; HOST=0.0.0.0 lets the ESP32 and
+// other devices on the same network reach it.
 const host = process.env.HOST || '127.0.0.1';
-const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer from 1 to 65535');
-const origin = new URL(corsOrigin);
-if (!['http:', 'https:'].includes(origin.protocol) || origin.origin !== corsOrigin) {
-  throw new Error('CORS_ORIGIN must be one exact http(s) origin without a trailing slash');
-}
+const corsOrigins = parseCorsOrigins(process.env.CORS_ORIGIN || DEFAULT_CORS_ORIGINS);
+const imap = imapSettings();
+const bot = {
+  webhookSecret: process.env.BOT_WEBHOOK_SECRET || '',
+  address: process.env.BOT_EMAIL_ADDRESS || imap?.user || '',
+};
+if (bot.webhookSecret && bot.webhookSecret.length < 16) throw new Error('BOT_WEBHOOK_SECRET must contain at least 16 characters');
+
 const db = createDatabase();
-const server = createApp({ db, corsOrigin }).listen(port, host, () => {
+const server = createApp({ db, corsOrigin: corsOrigins, bot }).listen(port, host, () => {
   console.log(`ECE 198 backend listening on http://${host}:${port}`);
+  console.log(`Browser origins allowed: ${corsOrigins.join(', ')}`);
+  if (bot.webhookSecret) console.log('Email bot webhook enabled at POST /api/bot/inbound-email');
+  if (imap) console.log(`Email bot checking ${imap.user} on ${imap.host} every ${imap.intervalMs / 1000} s`);
 });
+const poller = imap ? startImapPoller(db, imap) : null;
 server.on('error', error => {
   console.error(`Server failed: ${error.message}`);
+  poller?.stop();
   db.close();
   process.exitCode = 1;
 });
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.once(signal, () => server.close(() => db.close()));
+  process.once(signal, () => {
+    poller?.stop();
+    server.close(() => db.close());
+  });
 }

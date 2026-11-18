@@ -29,3 +29,14 @@ export function queryInteger(value, field, fallback, min, max) {
   if (typeof value !== 'string' || !/^(0|[1-9]\d*)$/.test(value)) fail(400, `Invalid ${field}`);
   return integer(Number(value), field, min, max);
 }
+
+export function email(value) {
+  const normalized = text(value, 'email', 254).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) fail(400, 'Invalid email address');
+  return normalized;
+}
+
+export function password(value) {
+  if (typeof value !== 'string' || value.length < 12 || value.length > 128) fail(400, 'password must contain 12-128 characters');
+  return value;
+}
