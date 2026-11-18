@@ -1,32 +1,59 @@
-# ECE 198 Exercise Tracker
+# MotionTrack
 
-An ESP32 exercise tracker backend for recording repetitions, workout duration, and heart-rate readings, with participant accounts and assigned staff monitoring.
+MotionTrack is a rep-counting exercise tracker for a course demo (ECE 198). A patient starts a workout session on
+the website and picks exercises one at a time (Arm Curl, Shoulder Press, Back Row) with a target number of reps.
+An ESP32 with a motion sensor, a pulse sensor and a small OLED takes a heart-rate check-in before the set, counts
+reps up to the target, freezes, then takes a check-in after it, and uploads each step over Wi-Fi. A doctor signs in
+separately and reviews their assigned patients' sessions: target, reps, before and after heart rate, times and status.
+An exercise is **Completed** only when every rep was counted and both heart-rate readings exist; otherwise it is
+**Incomplete**. Retried uploads are never counted twice.
 
-The backend and the website frontend are implemented. ESP32 firmware is separate.
+The proposed GitHub name for this repository is `motiontrack-esp32` (rename it in the repository's GitHub settings).
+The website says "patient" and "doctor"; the API, CLI and database call those roles `participant` and `staff`.
 
-- [Backend API, database schema, and setup guide](backend/README.md)
-- [Frontend requirements and integration contract](FRONTEND_HANDOFF.md)
-- [Frontend setup, run, and verification guide](frontend/README.md)
+## Layout
 
-## Run the backend
+```text
+backend/    Node 24 + Express + SQLite API, device protocol, doctor-management CLI, tests
+frontend/   React + Vite website: patient at /, doctor at /doctor; synthetic test device script
+firmware/   ESP32 Arduino sketch (MotionTrack/), host tests, wiring and flashing guide
+docs/       demo.md (setup and demo script) and design/ (the approved design)
+```
 
-Requires Node.js 24+ and npm. From the repository root:
+## Quick start (no hardware)
 
-```sh
+Needs Node.js 24+ and npm. Terminal 1:
+
+```bash
 cd backend
 npm ci
-cp .env.example .env
+test -f .env || cp .env.example .env
 npm start
 ```
 
-The API starts at `http://127.0.0.1:3000`. In another terminal, run `npm test` from `backend/`.
+Terminal 2:
 
-## Project layout
-
-```text
-backend/               API, SQLite schema, staff management CLI, and tests
-FRONTEND_HANDOFF.md     Frontend requirements and integration contract
-frontend/              React + Vite website (see frontend/README.md)
+```bash
+cd frontend
+npm ci
+test -f .env.local || cp .env.example .env.local
+npm run dev
 ```
 
-The repository includes source, tests, dependency lockfile, and example configuration. Local databases, installed packages, credentials, and unrelated coursework are excluded. ESP32 firmware and a browser UI are separate from the current backend deliverable.
+Open `http://localhost:5173/` (patient) or `http://localhost:5173/doctor` (doctor), and use the synthetic test
+device as described in [docs/demo.md](docs/demo.md). Run the checks with `cd backend && npm test`,
+`cd frontend && npm test && npm run build` and `bash firmware/tests/run.sh`.
+
+## Documentation
+
+- [Demo setup and script](docs/demo.md): exact steps, with the test device or the real ESP32
+- [Backend: API, device protocol, schema, migration, CLI](backend/README.md)
+- [Frontend: website setup, test device, behaviour](frontend/README.md)
+- [Firmware: wiring, libraries, flashing, Serial commands](firmware/README.md)
+- [Approved design](docs/design/2026-11-18-motiontrack-design.md)
+
+## Status
+
+The backend, website and test device are implemented and tested together. The firmware has been checked with host
+tests on synthetic data; real Wi-Fi, rep-counting thresholds and the heart-rate check-in still need to be tested
+on the hardware (see the notes in docs/demo.md).

@@ -1,173 +1,259 @@
-# ECE 198 exercise backend
+# MotionTrack backend
 
-Local Node.js 24 + Express + SQLite backend for the ESP32 exercise tracker. Participants register, choose an exercise and planned duration, and review live progress and past workouts. Staff can read only their assigned participants' records. The ESP32 authenticates separately and uploads cumulative counts, elapsed time, and heart rate over Wi-Fi.
+Local Node.js 24 + Express 5 + SQLite backend for MotionTrack. A patient starts an exercise **session** on the
+website and picks exercises one at a time (Arm Curl, Shoulder Press, Back Row) with a target number of reps.
+The ESP32 takes a heart-rate (BPM) check-in before the set, counts reps up to the target, then takes a check-in
+after it, and uploads each step over Wi-Fi. An assigned doctor reviews the patient's sessions.
 
-## 1) API Endpoints
+The website says "patient" and "doctor". In the API, CLI and database those accounts have the roles
+`participant` and `staff`; this document uses the API names where it describes routes and fields.
 
-Base URL: `http://127.0.0.1:3000`. Requests and responses use JSON, except successful logout and device revocation (204, no body). Send `Content-Type: application/json` with JSON bodies. All timestamps are server-generated UTC ISO 8601 strings. IDs below are illustrative; use the UUIDs returned by the API.
+Contents: [1 API](#1-api-endpoints) · [2 Device protocol](#2-device-protocol) · [3 Database schema and migration](#3-database-schema-and-migration) · [4 Setup](#4-setup)
 
-Authentication:
+## 1) API endpoints
 
-- **Public:** no credential.
-- **User:** `Authorization: Bearer <token>` returned by registration/login. Sessions expire after 24 hours. Staff log in at the same endpoint.
-- **Participant:** a user token whose account role is `participant`.
-- **Staff:** a user token whose role is `staff`; records additionally require a staff-participant assignment.
-- **Device:** `Authorization: Bearer <device_token>` returned once when a participant creates a device. It only works on the two device routes.
+Base URL: `http://127.0.0.1:3000`. Requests and responses are JSON, except successful logout and device
+revocation (204, no body). Send `Content-Type: application/json` with JSON bodies (at most 16 kB). Timestamps are
+server-generated UTC ISO 8601 strings. Unknown body fields and unknown query parameters are rejected with 400.
 
-### Response examples used below
+Credentials:
 
-`U` is a public user object. Password hashes and credential hashes are never returned:
+- **Public:** none.
+- **User:** `Authorization: Bearer <token>` returned by registration or login. Tokens expire after 24 hours.
+- **Participant:** a user token whose account role is `participant` (a patient).
+- **Staff:** a user token whose role is `staff` (a doctor). Reading a participant's records also needs an assignment; without one the route answers **404**, the same as for a record that does not exist.
+- **Device:** `Authorization: Bearer <device_token>`, returned once when a participant adds a device. It works only on the two `/api/device/...` routes.
 
-```json
-{"id":"participant-uuid","name":"Demo participant","email":"participant@example.com","role":"participant","created_at":"2026-11-16T15:00:00.000Z"}
-```
+### Objects
 
-`D` is a device:
-
-```json
-{"id":"device-uuid","name":"Wrist ESP32","created_at":"2026-11-16T15:01:00.000Z","last_seen_at":null}
-```
-
-`W` is a workout. This is an active example; new workouts have `status: "pending"`, zero counters, `last_sequence: 0`, and null start/end/heart rate. Completed workouts have `status: "completed"` and a populated `ended_at`:
+User `U` (the password hash is never returned):
 
 ```json
-{
-  "id":"workout-uuid",
-  "participant_id":"participant-uuid",
-  "device_id":"device-uuid",
-  "exercise_name":"Bicep curls",
-  "target_duration_seconds":120,
-  "status":"active",
-  "repetitions":8,
-  "elapsed_seconds":30,
-  "heart_rate_bpm":92,
-  "last_sequence":1,
-  "created_at":"2026-11-16T15:02:00.000Z",
-  "started_at":"2026-11-16T15:02:01.000Z",
-  "ended_at":null,
-  "updated_at":"2026-11-16T15:02:01.000Z"
-}
+{"id":"user-uuid","name":"Demo patient","email":"patient@example.com","role":"participant","created_at":"2026-11-18T15:00:00.000Z"}
 ```
 
-`R` is one stored reading. Missing heart rate is recorded as null, not zero. `completed` is stored/returned as SQLite integer 0 or 1, while the upload accepts a JSON boolean:
+Device `D`:
 
 ```json
-{"workout_id":"workout-uuid","sequence":1,"repetitions":8,"elapsed_seconds":30,"heart_rate_bpm":92,"completed":0,"received_at":"2026-11-16T15:02:01.000Z"}
+{"id":"device-uuid","name":"Wrist ESP32","created_at":"2026-11-18T15:01:00.000Z","last_seen_at":null}
 ```
 
-`P` is a progress response, calculated from completed workouts only. Dates use the UTC date on which the server first received a reading:
+Session `S`: `workouts` lists only the session's rep exercises, oldest first.
+
+```json
+{"id":"session-uuid","participant_id":"user-uuid","device_id":"device-uuid","status":"active",
+ "created_at":"2026-11-18T15:02:00.000Z","ended_at":null,"updated_at":"2026-11-18T15:02:00.000Z","workouts":[W]}
+```
+
+Exercise (workout) `W`. This is a finished Arm Curl; every column of the `workouts` table is returned:
 
 ```json
 {
-  "completed_workouts":1,
-  "total_repetitions":25,
-  "total_duration_seconds":120,
-  "daily":[{"date":"2026-11-16","exercise_name":"Bicep curls","workouts":1,"repetitions":25,"duration_seconds":120}]
+  "id":"workout-uuid","participant_id":"user-uuid","device_id":"device-uuid",
+  "exercise_name":"Arm Curl","kind":"reps","target_duration_seconds":null,
+  "session_id":"session-uuid","exercise_id":"arm_curl","target_reps":10,"phase":"done","status":"completed",
+  "repetitions":10,"elapsed_seconds":0,"heart_rate_bpm":null,
+  "before_bpm":78,"before_bpm_at":"2026-11-18T15:02:12.000Z","after_bpm":104,"after_bpm_at":"2026-11-18T15:02:30.000Z",
+  "before_skipped":0,"after_skipped":0,"device_status":"counting","device_seen_at":"2026-11-18T15:02:30.000Z",
+  "last_sequence":15,"created_at":"2026-11-18T15:02:05.000Z","started_at":"2026-11-18T15:02:12.000Z",
+  "ended_at":"2026-11-18T15:02:30.000Z","updated_at":"2026-11-18T15:02:30.000Z"
 }
 ```
 
-In the tables, substitute the complete JSON example for `U`, `D`, `W`, `R`, or `P`; these letters are documentation shorthand, not literal API values.
+A missing check-in is `null`, never 0. `*_skipped` is 0 or 1. Old workouts from before MotionTrack have
+`kind:"timed"`, a `target_duration_seconds` and null rep fields (`session_id`, `exercise_id`, `target_reps`, `phase`).
 
-### Health, exercises, and accounts
+Progress `P`, calculated from `completed` workouts only:
 
-| Method and route | Access / purpose | Request | Example response |
+```json
+{"completed_workouts":2,"total_repetitions":20,"total_duration_seconds":0,
+ "daily":[{"date":"2026-11-18","exercise_name":"Arm Curl","workouts":2,"repetitions":20,"duration_seconds":0}]}
+```
+
+Dates are the UTC date of `started_at` (or `created_at` when there is none). In the tables below, `S`, `W`, `U`, `D`
+and `P` stand for these objects.
+
+### Health, exercises and accounts
+
+| Method and route | Access | Request | Response |
 | --- | --- | --- | --- |
-| `GET /api/health` | Public; confirms server and database are reachable | None | 200 `{"status":"ok"}` |
-| `GET /api/exercises` | Public; supplies three exercise suggestions | None | 200 `{"exercises":["Bicep curls","Squats","Arm raises"]}` |
-| `POST /api/auth/register` | Public; creates a participant and signs them in | `{"name":"Demo participant","email":"participant@example.com","password":"your-unique-password"}` | 201 `{"token":"u_<random>","expires_at":"2026-11-17T15:00:00.000Z","user":U}` |
-| `POST /api/auth/login` | Public; signs in an existing participant or staff member | `{"email":"participant@example.com","password":"your-unique-password"}` | 200 `{"token":"u_<random>","expires_at":"2026-11-17T15:00:00.000Z","user":U}` |
-| `POST /api/auth/logout` | User; revokes the current session | No body | 204, no body |
-| `GET /api/me` | User; returns the signed-in account | None | 200 `{"user":U}` |
+| `GET /api/health` | Public | none | 200 `{"status":"ok"}` |
+| `GET /api/exercises` | Public | none | 200 `{"exercises":[{"id":"arm_curl","name":"Arm Curl","placement":"forearm"},{"id":"shoulder_press","name":"Shoulder Press","placement":"upper arm"},{"id":"back_row","name":"Back Row","placement":"upper arm"}]}` |
+| `POST /api/auth/register` | Public | `{"name","email","password"}` | 201 `{"token","expires_at","user":U}`. Always creates a `participant`. A duplicate email is 409. |
+| `POST /api/auth/login` | Public | `{"email","password"}` plus optional `"portal":"patient"` or `"doctor"` | 200 `{"token","expires_at","user":U}` |
+| `POST /api/auth/logout` | User | none | 204 |
+| `GET /api/me` | User | none | 200 `{"user":U}` |
 
-Names must contain 1-80 trimmed characters; emails are normalized to lowercase and unique without regard to case. Passwords must contain 12-128 characters. Registration cannot choose a role. Unknown body fields are rejected. Registration and login together allow 20 requests per IP per 15 minutes, returning 429 and `Retry-After` when exceeded.
+`portal` is the website entry point the person signed in on. If it is `doctor` and the account is not `staff`, or it
+is `patient` and the account is not `participant`, the server answers **403** ("This is a patient account. Use the
+patient sign-in." or the reverse) and creates no session. Any other `portal` value is 400. Omitting `portal` skips
+the check. Wrong email or password is 401, with the same cost for unknown emails. Names are 1-80 characters;
+emails are lowercased and unique; passwords are 12-128 characters. Registration and login share a limit of 20
+attempts per IP per 15 minutes (429 with `Retry-After`).
 
-### Device setup and participant workouts
+### Devices (participant)
 
-| Method and route | Access / purpose | Request | Example response |
-| --- | --- | --- | --- |
-| `POST /api/devices` | Participant; provisions a credential for their ESP32 | `{"name":"Wrist ESP32"}` | 201 `{"device":D,"device_token":"d_<random>"}` |
-| `GET /api/devices` | Participant; lists their unrevoked devices | None | 200 `{"devices":[D]}` |
-| `DELETE /api/devices/:id` | Participant owner; revokes a device and cancels its pending/active workout; retains history | Path: device UUID; no body | 204, no body |
-| `POST /api/workouts` | Participant; chooses an exercise, planned duration, and their device | `{"device_id":"device-uuid","exercise_name":"Bicep curls","target_duration_seconds":120}` | 201 `{"workout":W}` with pending state |
-| `GET /api/workouts` | Participant; their paginated history, including live workouts | Optional query: `limit` (default 20, 1-100), `offset` (default 0), `status` (`pending`, `active`, `completed`, `cancelled`), `exercise_name` (exact match ignoring case) | 200 `{"workouts":[W],"limit":20,"offset":0,"total":1}` |
-| `GET /api/workouts/:id` | Owner or assigned staff; current workout snapshot for live display | Path: workout UUID | 200 `{"workout":W}` |
-| `GET /api/workouts/:id/readings` | Owner or assigned staff; heart-rate and count history in sequence order | Path: workout UUID; optional `limit` (default 100, 1-1000), `offset` (default 0) | 200 `{"readings":[R],"limit":100,"offset":0,"total":1}` |
-| `POST /api/workouts/:id/cancel` | Participant owner; ends a pending/active workout so a new one can be selected | Path: workout UUID; no body | 200 `{"workout":W}` with `status:"cancelled"` and an end timestamp |
-| `GET /api/progress` | Participant; totals and daily progress from completed workouts | Optional `exercise_name` query, exact match ignoring case | 200 `P` |
+| Method and route | Request | Response |
+| --- | --- | --- |
+| `POST /api/devices` | `{"name":"Wrist ESP32"}` | 201 `{"device":D,"device_token":"d_<random>"}`. The token is shown only this once. |
+| `GET /api/devices` | none | 200 `{"devices":[D]}` (not revoked) |
+| `DELETE /api/devices/:id` | none | 204. Revokes the token. In one transaction its open rep exercise becomes `incomplete` (phase `done`), its open timed workout becomes `cancelled`, and its active session ends. History is kept. Unknown, someone else's or already revoked device: 404. |
 
-Custom exercises use the same `exercise_name` field as presets (1-80 trimmed characters); no exercise-creation endpoint is needed. Preset names are normalized to the displayed spelling. Planned duration is an integer from 1 to 86400 seconds. A device can have one pending/active workout at a time. Selecting another before completion/cancellation returns 409. History is newest first, with UUIDs breaking timestamp ties; paginate with `offset`. Offsets must be integers from 0 to 1000000000.
+### Sessions and exercises (participant)
 
-The website can poll `GET /api/workouts/:id` and its `/readings` route about once a second while active. For readings, advance `offset` by the number of samples received. `heart_rate_bpm` on a workout is the latest **non-null** measurement; check `updated_at` and the readings' `received_at` timestamps for freshness. A null upload keeps that snapshot value but saves a null in the individual reading. There is no generated heart-rate value when the sensor has no measurement.
+A participant has at most one active session at a time. A session is tied to the device chosen when it starts.
 
-Cancellation is idempotent. Completed workouts cannot be cancelled. Cancelled workouts and their readings remain in history, but are excluded from progress totals. Revoked devices stay in the database to preserve workout relationships; they disappear from the active-device list and their old tokens stop working.
+| Method and route | Request | Response |
+| --- | --- | --- |
+| `POST /api/sessions` | `{"device_id"}` | 201 `{"session":S}`. Unknown, foreign or revoked device: 404. A session is already active: 409 with `error.session_id`. |
+| `GET /api/sessions` | optional `limit` (default 10, 1-50), `offset`, `status` (`active` or `ended`) | 200 `{"sessions":[S],"limit","offset","total","server_time"}`, newest first |
+| `GET /api/sessions/:id` | none (owner or assigned staff) | 200 `{"session":S,"server_time"}` |
+| `POST /api/sessions/:id/exercises` | `{"exercise_id":"arm_curl","target_reps":10}` | 201 `{"workout":W}` with `status:"pending"`, `phase:"before_bpm"`. `exercise_id` is one of `arm_curl`, `shoulder_press`, `back_row`; `target_reps` is an integer 1-50. 409 if the session has ended, if it has an unfinished exercise ("Finish or stop the current exercise first"), or if the device has any unfinished workout. |
+| `POST /api/workouts/:id/skip-reading` | none | 200 `{"workout":W}`. In phase `before_bpm` it sets `before_skipped` and moves to `counting` (the exercise can no longer complete). In phase `after_bpm` it sets `after_skipped`, ends the exercise as `incomplete` (phase `done`). Any other phase, or a timed workout: 409 with `error.phase`. |
+| `POST /api/workouts/:id/cancel` | none | 200 `{"workout":W}`. This is "Stop exercise". A rep exercise becomes `incomplete`, phase `done`, keeping the data recorded so far; a legacy timed workout becomes `cancelled`. Idempotent. A `completed` workout is 409. |
+| `POST /api/sessions/:id/end` | none | 200 `{"session":S}`. Ends the session; an unfinished exercise becomes `incomplete`. Idempotent. |
 
-### Assigned staff monitoring
+`skip-reading`, `cancel` and `end` work only on the caller's own records (other participants' and unknown ids are 404).
 
-| Method and route | Access / purpose | Request | Example response |
-| --- | --- | --- | --- |
-| `GET /api/participants` | Staff; lists only their assigned participants | None | 200 `{"participants":[U]}` |
-| `GET /api/participants/:id/workouts` | Assigned staff; reviews that participant's history and live sessions | Path: participant UUID; same optional queries as `GET /api/workouts` | 200 `{"workouts":[W],"limit":20,"offset":0,"total":1}` |
-| `GET /api/participants/:id/progress` | Assigned staff; reviews that participant's progress | Path: participant UUID; optional `exercise_name` | 200 `P` |
+### Workout history and progress
 
-Staff can also use the shared workout detail/readings routes above. They cannot create participant workouts or devices. Staff accounts and assignments are managed by the local CLI, not public registration.
+| Method and route | Access | Response |
+| --- | --- | --- |
+| `GET /api/workouts` | Participant | 200 `{"workouts":[W],"limit","offset","total"}`, newest first. Optional `limit` (default 20, 1-100), `offset`, `status` (`pending`, `active`, `completed`, `cancelled`, `incomplete`), `kind` (`timed` or `reps`), `exercise_name` (exact, case-insensitive). |
+| `GET /api/workouts/:id` | Owner or assigned staff | 200 `{"workout":W}` |
+| `GET /api/workouts/:id/readings` | Owner or assigned staff | Legacy timed workouts only hold readings (`workout_readings`); rep exercises return an empty list. Optional `limit` (default 100, 1-1000), `offset`. 200 `{"readings":[...],"limit","offset","total"}` |
+| `GET /api/progress` | Participant | 200 `P`. Optional `exercise_name` and `kind`. |
 
-### ESP32 Wi-Fi routes
+### Doctor (staff) routes
 
-| Method and route | Access / purpose | Request | Example response |
-| --- | --- | --- | --- |
-| `GET /api/device/workout` | Device; retrieves its selected pending/active workout, including exercise and target time | Device Bearer token; no body | 200 `{"workout":W}` or `{"workout":null}` when no workout awaits the device |
-| `POST /api/device/workouts/:id/updates` | Device; uploads live progress or the final result | Path: workout UUID. `{"sequence":1,"repetitions":8,"elapsed_seconds":30,"heart_rate_bpm":92,"completed":false}` | 200 `{"workout":W,"duplicate":false}`; exact retry returns `duplicate:true` |
+| Method and route | Response |
+| --- | --- |
+| `GET /api/participants` | 200 `{"participants":[U + "active_session_id"]}`: only assigned patients. `active_session_id` is the id of the patient's active session, or `null`. |
+| `GET /api/participants/:id/sessions` | 200 like `GET /api/sessions` (same `limit`, `offset`, `status`). An unassigned participant is 404. |
+| `GET /api/participants/:id/workouts` | 200 like `GET /api/workouts` (same filters incl. `kind`). Unassigned: 404. |
+| `GET /api/participants/:id/progress` | 200 `P` (optional `exercise_name`, `kind`). Unassigned: 404. |
 
-Upload rules:
+Staff can also read `GET /api/sessions/:id`, `GET /api/workouts/:id` and its `/readings` for assigned patients; for
+anyone else those answer 404. Staff cannot create or change anything: participant-only routes return 403 for them.
+Staff accounts and assignments are made with the [CLI](#doctor-accounts-and-assignments), not through the website.
 
-1. Sequence starts at 1 for each workout and increases. Gaps are allowed; an unseen older sequence is rejected. Do not reset sequence on reconnect.
-2. `repetitions` is the cumulative nonnegative count (integer, at most 1000000), not a count to add. `elapsed_seconds` is cumulative actual duration, integer 0-86400. Neither may decrease.
-3. `heart_rate_bpm` is optional or null when unavailable, otherwise an integer 1-300. The server stores it as reported; it does not infer sensor accuracy or interpret it medically.
-4. `completed` is an optional JSON boolean, default false. Set it true in the final upload. The target duration is a user goal, not a server-enforced cutoff; the device's stop button/timer ends the workout.
-5. Resend the **identical** sequence/body after a timeout. Exactly matching retries do not add samples, including retries after completion. Reusing a sequence with different values returns 409. New uploads after completion or cancellation return 409.
-6. Uploads update the workout and insert the reading in a single transaction. When no app workout is selected, no records are created automatically. Revocation/cancellation requires the device to poll again and stop uploading to the old workout.
+### Legacy timed workouts
 
-`started_at` is when the first upload arrives, not a device-clock timestamp. `ended_at` is when the server accepts the final upload or cancellation. Use `elapsed_seconds` as measured by the ESP32 for exercise duration; intermittent Wi-Fi can delay the server timestamps. The ESP32 should buffer and retry unsent data, send pending samples in sequence order, and persist the selected workout ID/next sequence if it needs to survive a reboot.
+Before MotionTrack the API recorded fixed-duration workouts. Those routes remain so old data stays readable and the
+old tests stay valid; the website no longer offers them (it only lists old workouts and lets a patient cancel one that
+is still open, because an open workout blocks the device).
+
+| Method and route | Notes |
+| --- | --- |
+| `POST /api/workouts` | Participant. `{"device_id","exercise_name","target_duration_seconds"}` (1-86400) creates a `kind:"timed"` workout (`pending`). 409 if the device already has an unfinished workout. |
+| `POST /api/device/workouts/:id/updates` for a timed workout | Original body `{"sequence","repetitions","elapsed_seconds","heart_rate_bpm"?,"completed"?}`; response `{"workout":W,"duplicate":bool}`; stored in `workout_readings`. Cumulative values cannot decrease. The firmware does not run timed workouts. |
 
 ### Errors
 
-All errors have the shape `{"error":{"message":"Workout not found"}}`.
+All errors look like `{"error":{"message":"Workout not found"}}`. Some 409s add fields such as `phase` or `session_id`.
 
 | Status | Meaning |
 | --- | --- |
-| 400 | Invalid/missing/unknown input, malformed JSON, invalid query |
-| 401 | Missing, expired, revoked, or wrong kind of token; wrong login |
-| 403 | Wrong user role or browser origin |
-| 404 | Route missing, record missing, or record outside the caller's permissions |
-| 409 | Email already registered, unfinished device workout, conflicting/reordered upload, or terminal workout |
-| 413 | JSON body larger than 16kb |
-| 429 | Authentication throttle exceeded |
-| 500 | Unexpected server error; details are not returned to clients |
+| 400 | Invalid, missing or unknown input; malformed JSON; invalid query |
+| 401 | Missing, expired or revoked token; wrong email or password |
+| 403 | Wrong role, wrong sign-in entry point (`portal`), or browser origin not allowed |
+| 404 | Route, record or participant missing or not accessible to the caller |
+| 409 | Duplicate email; state conflict (active session, unfinished exercise or device workout, ended record, wrong phase); upload conflict |
+| 413 | JSON body over 16 kB |
+| 429 | Authentication throttle |
+| 500 | Unexpected error (details are not returned) |
 
-## 2) Database Schema
+## 2) Device protocol
 
-Source: [`schema.sql`](./schema.sql). SQLite creates the six `STRICT` tables automatically on startup. UUIDs and hashes are `TEXT`; counters and durations are `INTEGER`; times are UTC ISO `TEXT`. Every field is required unless explicitly nullable. No raw accelerometer data is stored.
+Routes use the device token. Every authenticated request also updates the device's `last_seen_at`.
 
-| Table | Fields and types | Relationships / purpose |
+**Poll.** `GET /api/device/workout` returns `{"workout":W}` for the device's single pending/active workout, or
+`{"workout":null}`. The firmware polls about once a second. Each poll sets that workout's `device_seen_at`. The
+fields the device uses are `id`, `kind`, `exercise_id`, `exercise_name`, `target_reps`, `phase`, `repetitions`,
+`last_sequence` and `status`. A `kind:"timed"` workout is left over from before MotionTrack and is not run.
+
+**Upload.** `POST /api/device/workouts/:id/updates` with one of four bodies. `sequence` is an integer 1 to
+2147483647 that must be larger than the workout's `last_sequence`.
+
+```json
+{"sequence":1,"event":"status","capture_status":"waiting_finger"}
+{"sequence":2,"event":"before_bpm","bpm":78}
+{"sequence":3,"event":"progress","repetitions":1}
+{"sequence":14,"event":"after_bpm","bpm":104}
+```
+
+`capture_status` is one of `waiting_finger`, `reading`, `weak_signal`, `counting`. `repetitions` is the cumulative
+count (0-1000000), `bpm` an integer 1-300. Each body must contain exactly its fields.
+
+Success is `200 {"workout":W,"duplicate":false}`. Any accepted event sets `status:"active"` and the workout's
+`last_sequence`, `device_seen_at` and `updated_at`.
+
+| Event | Allowed in phase | Effect |
 | --- | --- | --- |
-| `users` | `id TEXT PK`; `name TEXT`; `email TEXT UNIQUE COLLATE NOCASE`; `password_hash TEXT`; `role TEXT` (`participant` or `staff`); `created_at TEXT` | Shared accounts; passwords use a per-password random salt and asynchronous scrypt. Public responses omit the hash. |
-| `auth_sessions` | `token_hash TEXT PK`; `user_id TEXT FK`; `created_at TEXT`; `expires_at TEXT` | Many sessions per user. Only SHA-256 token hashes are stored. Deleting a user cascades sessions. |
-| `staff_participants` | `staff_id TEXT FK`; `participant_id TEXT FK`; composite PK (`staff_id`, `participant_id`) | Many-to-many staff assignments. Both reference `users.id`; CLI validates their respective roles. User deletion cascades assignments. |
-| `devices` | `id TEXT PK`; `participant_id TEXT FK`; `name TEXT`; `token_hash TEXT UNIQUE`; `created_at TEXT`; nullable `last_seen_at TEXT`, `revoked_at TEXT`; unique (`id`, `participant_id`) | Each device belongs to one participant. Only a hash of its credential is stored. Revocation retains the row and history. |
-| `workouts` | `id TEXT PK`; `participant_id TEXT FK`; `device_id TEXT`; `exercise_name TEXT`; `target_duration_seconds INTEGER`; `status TEXT`; `repetitions INTEGER DEFAULT 0`; `elapsed_seconds INTEGER DEFAULT 0`; nullable `heart_rate_bpm INTEGER`; `last_sequence INTEGER DEFAULT 0`; `created_at TEXT`; nullable `started_at TEXT`, `ended_at TEXT`; `updated_at TEXT` | Many workouts per participant/device. Composite FK (`device_id`, `participant_id`) enforces device ownership. Counters reflect the latest accepted upload; heart rate is the latest non-null sample. |
-| `workout_readings` | `workout_id TEXT FK`; `sequence INTEGER`; `repetitions INTEGER`; `elapsed_seconds INTEGER`; nullable `heart_rate_bpm INTEGER`; `completed INTEGER` (0 or 1); `received_at TEXT`; composite PK (`workout_id`, `sequence`) | Many samples per workout, including the final sample. Composite key prevents duplicate uploads. Workout deletion cascades readings. |
+| `status` | `before_bpm`, `counting`, `after_bpm` | Sets `device_status` only; no phase change. |
+| `before_bpm` | `before_bpm` | Saves `before_bpm` and `before_bpm_at`; phase becomes `counting`. |
+| `progress` | `counting` | Saves the cumulative `repetitions` (cannot decrease or exceed `target_reps`). Reaching `target_reps` freezes the count: phase becomes `after_bpm`. |
+| `after_bpm` | `after_bpm` | Saves `after_bpm` and `after_bpm_at`; phase becomes `done`; `ended_at` is set. Status is `completed` if `repetitions == target_reps` and a before reading exists (any BPM values, lower or equal is fine), otherwise `incomplete` (for example the before reading was skipped). |
 
-Constraints enforce nonempty names/exercises, the four allowed workout statuses, nonnegative counters, duration bounds, positive sequence numbers, and heart rate 1-300 when present. A partial unique index allows one unfinished workout per device. History and assignment lookups are indexed. Foreign keys are enabled on every connection. Device deletion is restricted by workout references; the API revokes credentials instead of deleting device rows. No HTTP API deletes account/workout data. Prototype records are retained until the database owner deliberately removes them; no automatic retention/deletion policy has been assumed.
+Phases run `before_bpm` → `counting` → `after_bpm` → `done`. The website's skip and stop actions move the phase on
+without the device, so the device must follow `phase` from its poll.
 
-## 3) Setup Instructions
+Duplicate and conflict rules:
 
-### Dependencies and local start
+1. An upload whose `sequence` already exists is checked first, even after the exercise has ended. Identical content
+   returns **200 `duplicate:true`** and changes nothing except `device_seen_at`: the count and BPM are not saved again.
+   The same sequence with different content is 409.
+2. A new event on an ended workout is 409 ("Workout has ended").
+3. A new `sequence` not greater than `last_sequence` is 409.
+4. An event not allowed in the current phase (for example `progress` after the website skipped the reading) is 409
+   with `error.phase`; the device should poll again.
+5. `repetitions` above the target is 400; below the stored count is 409.
+6. Malformed bodies, unknown events or fields are 400; an unknown workout id, or one on another device, is 404.
 
-Install **Node.js 24 or newer** and npm. Express 5 is the only direct package dependency; SQLite, hashing, and the test runner use Node's built-in modules. The package lock records exact dependency versions. No separate database server or paid service is required. Runtime APIs were checked against the official [Express documentation](https://expressjs.com/en/starter/installing/) and [Node crypto documentation](https://nodejs.org/docs/latest-v24.x/api/crypto.html); [Node SQLite documentation](https://nodejs.org/api/sqlite.html) describes the embedded driver.
+Every accepted event is stored in `workout_events`, in the same transaction as the workout update. The device
+resends the same bytes until it receives a 2xx or a 409.
 
-From the cloned repository root:
+## 3) Database schema and migration
 
-```sh
+SQLite file, `STRICT` tables, foreign keys on. Source: [`schema.sql`](./schema.sql) (version 1 base, run on every
+start with `IF NOT EXISTS`) and [`migrations.js`](./migrations.js) (version 2).
+
+**Versioning.** The database's `PRAGMA user_version` records the schema version (now 2). A new database gets the base
+schema and is then migrated to 2. An existing database with `user_version` 0 that already has a `users` table is
+treated as version 1. Migrations run at startup in one transaction with `PRAGMA foreign_keys = OFF` around it (so
+rebuilding `workouts` does not cascade-delete `workout_readings`), then `PRAGMA foreign_key_check`, and roll back
+completely if anything fails.
+
+**What version 2 does.** It creates `exercise_sessions` and `workout_events`, and rebuilds `workouts` with new
+columns by copying every row. Every existing workout is kept with `kind='timed'`; its readings in
+`workout_readings` are untouched. Nothing is deleted.
+
+| Table | Purpose |
+| --- | --- |
+| `users` | Accounts; `role` is `participant` or `staff`. Passwords are scrypt hashes. |
+| `auth_sessions` | Hashed user tokens with expiry. (Not exercise sessions.) |
+| `staff_participants` | Doctor-to-patient assignments (many to many). |
+| `devices` | One row per ESP32 per participant; only a SHA-256 hash of the device token; `revoked_at` keeps history. |
+| `exercise_sessions` | `id`, `participant_id`, `device_id`, `status` (`active`/`ended`), `created_at`, `ended_at`, `updated_at`. A partial unique index allows one `active` session per participant. |
+| `workouts` | One row per exercise (and per legacy timed workout). Columns below. |
+| `workout_events` | Upload log for rep exercises: `workout_id`, `sequence`, `type` (`status`/`before_bpm`/`progress`/`after_bpm`), `repetitions`, `bpm`, `capture_status`, `received_at`; primary key (`workout_id`, `sequence`), which enforces the duplicate rule. |
+| `workout_readings` | Legacy per-upload log for timed workouts. |
+
+`workouts` columns: the original `id`, `participant_id`, `device_id`, `exercise_name`, `status`, `repetitions`,
+`elapsed_seconds`, `heart_rate_bpm`, `last_sequence`, `created_at`, `started_at`, `ended_at`, `updated_at`, and the
+version 2 additions `kind` (`timed`/`reps`), `target_duration_seconds` (now nullable), `session_id`, `exercise_id`,
+`target_reps` (1-50), `phase`, `before_bpm`, `before_bpm_at`, `after_bpm`, `after_bpm_at`, `before_skipped`,
+`after_skipped`, `device_status`, `device_seen_at`. `status` allows `pending`, `active`, `completed`,
+`cancelled` (legacy) and `incomplete`. A CHECK requires timed rows to have a duration and rep rows to have a session,
+an exercise, a target and a phase. The partial unique index on `device_id` allows one pending/active workout per
+device. No raw sensor data is stored, and no API deletes accounts or workouts.
+
+## 4) Setup
+
+Requires **Node.js 24 or newer** and npm. Express is the only dependency; SQLite, hashing and the test runner are
+built into Node. Node may print an experimental-SQLite warning; it is harmless.
+
+```bash
 cd backend
 npm ci
 cp .env.example .env
@@ -176,61 +262,64 @@ npm start
 
 In another terminal:
 
-```sh
+```bash
 curl http://127.0.0.1:3000/api/health
+```
+
+The database and its folder are created on first start and survive restarts. Local data, `.env` and `node_modules`
+are git-ignored.
+
+### Tests
+
+```bash
+cd backend
 npm test
 ```
 
-Run npm commands from this backend directory. The database and its parent directory are created on first start, and existing records survive restarts. Local data, credentials in `.env`, and installed packages are ignored by Git. Node 24 may print an experimental SQLite warning; this does not prevent execution.
+The tests use real HTTP requests against temporary servers and databases (including migration of a version 1
+database); they never touch your own database.
 
 ### Environment variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` | Interface on which the API listens. Use `0.0.0.0` for an ESP32 on the same Wi-Fi LAN. |
+| `HOST` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` so an ESP32 on the same Wi-Fi can reach it. |
 | `PORT` | `3000` | TCP port, 1-65535. |
-| `DATABASE_PATH` | `./data/ece198.sqlite` | Persistent SQLite file, resolved relative to the working directory. Use the same value for server and CLI. |
-| `CORS_ORIGIN` | `http://localhost:5173` | One exact frontend origin, no trailing slash. Requests from other browser origins return 403. Requests without an Origin header, such as ESP32/curl requests, use token authentication normally. |
-| `STAFF_PASSWORD` | None | Required only by `create-staff`; do not store it in `.env` or commit it. |
+| `DATABASE_PATH` | `./data/ece198.sqlite` | SQLite file, relative to the working directory. Use the same value for the server and the CLI. |
+| `CORS_ORIGIN` | `http://localhost:5173` | One exact browser origin, no trailing slash. Other browser origins get 403. Requests with no `Origin` header (ESP32, curl) are unaffected. |
+| `STAFF_PASSWORD` | none | Used only by `create-staff` (12-128 characters). Do not store it in `.env`. |
 
-The server does not require a JWT/session signing secret: it stores hashes of random opaque credentials. Configure the frontend to send Bearer tokens and clear them on logout. Keep the device token only in the ESP32's configuration; never put a user token on it.
+`npm start` and `npm run manage` read `.env` if it exists.
 
-### Provision staff and assignments
+### Doctor accounts and assignments
 
-Register the participant through the API first. To create a staff account, enter a unique password using a hidden shell prompt (macOS zsh):
+There is no doctor registration on the website. A patient registers on the website first; then, from `backend/`:
 
-```sh
-read -rs 'STAFF_PASSWORD?New staff password (12-128 characters): '
-echo
-export STAFF_PASSWORD
-npm run manage -- create-staff staff@example.com "Exercise staff"
+```bash
+export STAFF_PASSWORD='choose-a-long-password'
+npm run manage -- create-staff doctor@example.com "Dr Demo"
 unset STAFF_PASSWORD
-npm run manage -- assign staff@example.com participant@example.com
+npm run manage -- assign doctor@example.com patient@example.com
 ```
 
-Remove an assignment with:
+Remove an assignment:
 
-```sh
-npm run manage -- unassign staff@example.com participant@example.com
+```bash
+npm run manage -- unassign doctor@example.com patient@example.com
 ```
 
-These commands can run while the local server is running. They validate roles and never promote an existing participant account. Assignment/unassignment is idempotent. Staff log in through `POST /api/auth/login`. No staff credentials are seeded in the project.
+The commands work while the server is running and print JSON. `create-staff` refuses an email that already has an
+account (it never promotes one); `assign` and `unassign` require an existing `staff` email and an existing
+`participant` email, and are idempotent. Command usage: `create-staff EMAIL NAME`, `assign STAFF_EMAIL PARTICIPANT_EMAIL`,
+`unassign STAFF_EMAIL PARTICIPANT_EMAIL`.
 
-### App and ESP32 integration order
+### Real ESP32
 
-1. App registers/logs in the participant and receives a user token.
-2. App calls `POST /api/devices` once; save the returned device UUID and provision `device_token` onto that ESP32. The API will not reveal the token again; revoke and create a replacement if lost.
-3. App fetches `/api/exercises` or accepts a custom exercise, collects planned seconds, then calls `POST /api/workouts` with the device UUID.
-4. ESP32 calls `GET /api/device/workout` using its device token, gets the workout UUID and selected exercise/time, and starts counting when the participant presses its physical start button.
-5. ESP32 calls the updates endpoint roughly once a second with cumulative counters, a fresh sequence, and a heart-rate reading when available. Mark the last upload `completed:true`.
-6. App polls the workout and readings; completed records appear in history and progress. Assigned staff can use their own token to view the same records.
+Set `HOST=0.0.0.0` in `.env`, restart, and point the firmware's `API_BASE_URL` at `http://<laptop LAN IP>:3000`
+(`localhost` on the ESP32 is the ESP32). The laptop firewall must allow the port. See [../firmware/README.md](../firmware/README.md)
+and [../docs/demo.md](../docs/demo.md).
 
-For the actual ESP32, change `HOST=0.0.0.0` in `.env`, restart, and use the computer's LAN address, for example `http://192.168.1.10:3000/api/device/workout`. `localhost` on the ESP32 refers to the ESP32 itself. The computer and device must share a reachable network, and the OS firewall must allow the configured port. Set `CORS_ORIGIN` to the frontend's actual origin independently of the device URL.
+### Scope
 
-### Verification and scope
-
-`npm test` uses real HTTP requests against ephemeral local servers and isolated SQLite databases. It checks all listed routes, registration/login/logout/expiry, assignments and user/device isolation, custom workouts and presets, live/final uploads, heart-rate persistence, retries/reordering, cancellation/revocation, validation/CORS, and database persistence/constraints. Tests do not modify your project database or create permanent test accounts.
-
-The implementation follows the overview's app workflow (receive counts/durations, record workouts, participant progress/history, staff monitoring with permissions, persistent storage) and the clarified requirements (Wi-Fi live uploads, registration, exercise/time input, and heart-rate history).
-
-Remaining assumptions: "time" means planned duration, not scheduling a workout at a clock time; staff assignment is many-to-many; heart rate may be missing; device firmware calculates repetitions and decides when to stop. HTTP plus a single SQLite process is intended for the local course prototype. Browser UI, ESP32 firmware/Bluetooth, sensor calibration, deployment/TLS, password recovery/email verification, and a real participant-data retention policy are outside this backend deliverable. Use synthetic data locally; real participant deployment needs its actual privacy/access/retention requirements and secure transport specified first.
+HTTP with a single SQLite process, for a local course prototype. Deployment, TLS, password recovery, sensor
+calibration, medical interpretation of BPM and a real data-retention policy are out of scope. Use synthetic data.

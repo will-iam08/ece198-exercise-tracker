@@ -1,119 +1,139 @@
-# ECE 198 exercise tracker — website
+# MotionTrack website
 
-React + Vite frontend for the backend in [`../backend`](../backend/README.md). Participants register, add an
-ESP32 device, set up a workout, watch live repetitions / time / heart rate, and review history and progress.
-Staff sign in through the same form and get a read-only dashboard of their assigned participants.
+React + Vite frontend for the [MotionTrack backend](../backend/README.md). It has two entry points:
+
+- **Patient:** `http://localhost:5173/` — register or sign in, add an ESP32 device, start a workout session, pick
+  exercises one at a time (exercise and target reps), watch live reps and heart-rate check-ins, skip a reading,
+  stop an exercise, end the session, and review History and Progress.
+- **Doctor:** `http://localhost:5173/doctor` — sign in with a doctor account, see assigned patients (with a
+  "Live now" badge), and open each patient's sessions and exercises. Read-only.
+
+Signing in on the wrong entry point is refused by the server ("This is a patient account. Use the patient
+sign-in." / "This is a doctor account. Use the doctor sign-in."). Internally the roles are `participant` (patient)
+and `staff` (doctor); that is what the API and CLI call them.
 
 ## Requirements
 
-- Node.js 24 or newer for the backend (the frontend itself builds on Node 22+), and npm.
+- Node.js 24 or newer for the backend (the frontend itself builds on Node 22+) and npm.
 - The backend running at `http://127.0.0.1:3000` with `CORS_ORIGIN=http://localhost:5173` (its default).
 
 ## Run it locally
 
-Terminal 1 — backend:
+Terminal 1, backend:
 
-```sh
+```bash
 cd backend
 npm ci
 test -f .env || cp .env.example .env
 npm start
 ```
 
-Terminal 2 — frontend:
+Terminal 2, frontend:
 
-```sh
+```bash
 cd frontend
 npm ci
 test -f .env.local || cp .env.example .env.local
 npm run dev
 ```
 
-Open **http://localhost:5173** (use `localhost`, not `127.0.0.1`: the backend only accepts that exact origin).
-The dev server is pinned to that host and port and fails rather than moving to another port.
-
-### Configuration
+Open **http://localhost:5173** (use `localhost`, not `127.0.0.1`: the backend only accepts that exact origin). The
+dev server is pinned to that host and port and fails rather than moving to another port.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | `http://127.0.0.1:3000` | Backend base URL. Used when the variable is unset, in both dev and production builds. |
+| `VITE_API_BASE_URL` | `http://127.0.0.1:3000` | Backend base URL (used when unset, in dev and production builds). |
 
 Vite variables are public and end up in the browser bundle. Never put passwords or tokens in them.
 
-### Other commands
+### Tests and build
 
-```sh
-npm run build     # production build into dist/
-npm run preview   # serve the production build at http://localhost:5173
-npm test          # unit tests (minutes conversion, heart-rate freshness, progress ranges)
-```
-
-## Staff accounts
-
-Staff are created and assigned with the backend CLI (there is no staff registration on the website):
-
-```sh
-cd backend
-read -rs 'STAFF_PASSWORD?New staff password (12-128 characters): '; echo; export STAFF_PASSWORD
-npm run manage -- create-staff staff@example.com "Exercise staff"
-unset STAFF_PASSWORD
-npm run manage -- assign staff@example.com participant@example.com
-```
-
-## Checking the site without hardware
-
-`scripts/fake-device.mjs` pretends to be the ESP32 and sends **made-up numbers** to the real backend device
-routes. It is for testing only, is not part of the website, and says nothing about the real device or sensors.
-
-```sh
+```bash
 cd frontend
-DEVICE_TOKEN='<token the website showed when you added the device>' npm run fake-device -- --seconds 30
+npm test
+npm run build
 ```
 
-Options: `--seconds N`, `--no-heart-rate`, `--drop-heart-rate N` (heart rate for the first N updates only),
-`--pause N` (stop sending for N seconds midway), `--no-complete` (never send the final upload).
+`npm test` runs the unit tests (exercise status and BPM display rules, progress ranges, route detection).
+`npm run build` writes the production build to `dist/`. `npm run preview` serves it at `http://localhost:5173`.
 
-### Manual checklist
+## Doctor accounts
 
-Each step passes only if the stated result appears.
+Doctors are created and assigned with the backend CLI; there is no doctor registration on the website. The patient
+must have registered first:
 
-| # | Do this | Passes when |
+```bash
+cd backend
+export STAFF_PASSWORD='choose-a-long-password'
+npm run manage -- create-staff doctor@example.com "Dr Demo"
+unset STAFF_PASSWORD
+npm run manage -- assign doctor@example.com patient@example.com
+```
+
+## Trying it without hardware: the fake device
+
+`scripts/fake-device.mjs` pretends to be the ESP32 and sends **made-up** heart rates and reps to the real backend
+device routes, using the same protocol as the firmware. It is a test tool only and says nothing about the real
+device, its sensors or its firmware.
+
+It works on **one exercise per run**: start the exercise on the website, then run the script with the device token
+the website showed once when you added the device. It prints each step, runs before-check-in, reps, and
+after-check-in, and exits when the exercise is closed (done, stopped or session ended). Run it again for the next
+exercise. The token is never printed.
+
+```bash
+cd frontend
+DEVICE_TOKEN='<token from My devices>' npm run fake-device -- --help
+```
+
+| Flag | Default | Effect |
 | --- | --- | --- |
-| 1 | Create an account (password of 12+ characters) | You are signed in and see Workout / My devices / History / Progress |
-| 2 | My devices → add “Test ESP32” | A device token is shown once; after “hide token” it cannot be shown again; the device is selected |
-| 3 | Workout → choose device, “Another exercise” → `Leg lifts`, `0.5` minutes → Set up workout | Screen says “Ready. Press the start button on your device”; planned time 0:30; heart rate “No reading” |
-| 4 | Run the fake device with `--seconds 30 --drop-heart-rate 10 --no-complete` | Repetitions, time, and heart rate change about once a second with “Live reading” |
-| 5 | Keep watching after update 10 | About 5 seconds later the heart-rate tile turns amber: “No current reading — last reading was N bpm, … ago” |
-| 6 | Stop the backend for a few seconds, then start it again | “Disconnected from the server” appears, numbers stay, and updates resume without duplicated chart points |
-| 7 | Cancel workout → Yes | “This workout was cancelled”; it is in History as Cancelled and not counted in Progress |
-| 8 | Set up Bicep curls for 1 minute and run the fake device with `--seconds 15` | “Workout complete”; heart-rate chart and readings table are shown |
-| 9 | History | All workouts listed, newest first; exercise and status filters and paging work; View details shows the chart |
-| 10 | Progress | Totals for completed workouts only; changing the time range and “Show on chart” updates totals and the bar chart |
-| 11 | Reload the page | You are signed out (the account token is kept in memory only); signing in returns to an unfinished workout |
-| 12 | Sign out, then sign in as an assigned staff member | Only assigned participants are listed; their workouts, live view, and progress open read-only (no cancel button) |
-| 13 | Sign in as a staff member with no assignments | “No participants are assigned to you yet” |
+| `--bpm-before N` | 78 | Heart rate sent for the check-in before the exercise (1-300). |
+| `--bpm-after N` | 104 | Heart rate sent for the check-in after the exercise (1-300). |
+| `--rep-ms N` | 800 | Milliseconds per repetition (50-60000). |
+| `--weak-ms N` | 0 | Report "weak signal" for N ms in each check-in before it succeeds. |
+| `--no-after-bpm` | off | Never finish the after-check-in: keep reporting "waiting for finger" / "weak signal" until the website's Skip reading is used (the exercise ends Incomplete). |
+| `--retry-last` | off | After the first counted rep, resend that upload byte for byte and print the server's reply (`duplicate`); the count does not change. |
 
-## How it behaves
+`API_BASE_URL` (environment variable) overrides the backend address (default `http://127.0.0.1:3000`).
 
-- **Sign-in.** The account token is kept in memory only. Reloading or closing the page signs you out. Sign-out
-  revokes the session on the server; any 401 returns to the sign-in screen and removes all account data from the page.
-- **Device tokens** are shown once, held only while that panel is open, and never stored or logged by the site.
-- **Polling.** The workout and its new readings are fetched about once a second in a single awaited loop
-  (never overlapping), from the stored reading offset, de-duplicated by sequence. Polling stops when the workout is
-  completed or cancelled, on leaving the screen, or on sign-out. Network failures back off (1, 2, 4, 8, then 10 s).
-  History refreshes separately every 5 seconds.
-- **Heart rate** is never shown as 0 and never estimated. States on the live screen:
+Example runs, one per exercise. Start the matching exercise on the website first (with a target of 5 reps, say):
 
-  | State | When | Shown as |
-  | --- | --- | --- |
-  | Live | newest non-null reading reached the server ≤ **5 seconds** ago | value in bpm, green “♥ Live reading” |
-  | Stale | newest non-null reading is older than 5 seconds, or the server is unreachable | amber tile, “⚠ No current reading”, with the last value and its age and time |
-  | None | no heart rate has been received | grey dashed tile, “No reading” |
-  | Finished | workout completed or cancelled | “Last heart rate recorded” with its date and time |
+```bash
+# Arm Curl: normal run
+DEVICE_TOKEN='<token>' npm run fake-device -- --rep-ms 600
+```
 
-  Freshness compares the reading's server `received_at` time with this computer's clock, so the two clocks need to
-  agree (they do when both run on the same machine).
-- **Charts** plot only stored readings against the device's elapsed time; samples without a heart rate leave a gap.
-  Every chart has a table with the same numbers.
-- **Progress** uses the backend's daily totals (grouped by UTC date). “All time” shows the backend's own totals;
-  shorter ranges add up the daily rows inside the range.
+```bash
+# Shoulder Press: first check-in is weak for 3 s before it succeeds
+DEVICE_TOKEN='<token>' npm run fake-device -- --weak-ms 3000 --bpm-before 82 --bpm-after 110
+```
+
+```bash
+# Back Row: demonstrate a retried upload that must not double-count
+DEVICE_TOKEN='<token>' npm run fake-device -- --retry-last
+```
+
+```bash
+# Any exercise: never take the after reading; press "Skip reading" on the website to end it Incomplete
+DEVICE_TOKEN='<token>' npm run fake-device -- --no-after-bpm
+```
+
+The full course demo is in [../docs/demo.md](../docs/demo.md).
+
+## How the website behaves
+
+- **Sign-in.** The account token is kept in memory only; reloading signs you out. Sign-out revokes the session on
+  the server and any 401 returns to the sign-in screen.
+- **Device tokens** are shown once, kept only while that panel is open, and never stored or logged by the site.
+- **Live exercise.** The open exercise is refreshed about once a second in a single awaited loop (never
+  overlapping); lists refresh about every 5 seconds. Failures back off (1, 2, 4, 8, then 10 s) and the page marks
+  itself as disconnected from the server while it keeps the last data. If the device has not contacted the server for more than
+  5 seconds while an exercise is open, the page shows "Device not responding".
+- **Heart rate** is only the before and after check-in values with their capture times. A missing value shows as
+  "No reading" (or "Skipped" when the patient skipped it), never as 0 and never estimated.
+- **Status.** An exercise is **Completed** only when all target reps were counted and both check-ins exist.
+  Otherwise it ends **Incomplete** (skipped or missing reading, stopped exercise, or session ended early).
+- **Progress** counts completed exercises and reps only, over a selectable range.
+- **Doctor view** uses the same polling for a live session and is read-only; an unassigned patient is not
+  reachable (the API answers 404).

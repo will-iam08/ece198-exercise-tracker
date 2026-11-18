@@ -38,7 +38,7 @@ Anti-goals (failure even if it "works")
 - Network calls that stall motion sampling and miss reps.
 - Showing a stale or missing BPM as if it were a real reading; showing null as 0.
 - A doctor seeing an unassigned patient's data via any route (UI hiding is not the protection).
-- Any mention of Claude/AI in code, docs, UI, or commits (user's standing preference). Commits authored as the user.
+- Any tool or assistant attribution in code, docs, UI, or commits (user's standing preference). Commits authored as the user.
 
 ## 3. Constraints
 
