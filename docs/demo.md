@@ -439,6 +439,25 @@ unknown sender gets `202` with `{"stored":false}` and nothing is stored; a missi
 `BOT_WEBHOOK_SECRET` the route does not exist (`404`). The mail service must reach the backend: through a tunnel to
 port 3000, or by running the backend with `HOST=0.0.0.0` on a network the service can reach.
 
+**A with CloudMailin (no domain or mailbox of your own needed).** CloudMailin's free plan (10,000 emails a month,
+up to 512 KB each, no card) gives you an address such as `abc123@cloudmailin.net` and posts every email to a URL.
+The webhook reads CloudMailin's **JSON (Normalized)** format directly and accepts the secret as
+`Authorization: Bearer <secret>`, because CloudMailin can only set the Authorization header.
+
+1. Set `BOT_WEBHOOK_SECRET` as above, and `BOT_EMAIL_ADDRESS` to your CloudMailin address, in `backend/.env`. Restart
+   the backend.
+2. Make the website reachable with a Cloudflare Tunnel (section 6). The Vite server forwards `/api` to the backend,
+   so the one tunnel serves both.
+3. In CloudMailin, edit the address:
+   - **Target URL**: `https://<your tunnel>.trycloudflare.com/api/bot/inbound-email`
+   - **Format**: JSON (Normalized)
+   - **Authorization Settings**: `Bearer <the BOT_WEBHOOK_SECRET value>`
+4. Email the CloudMailin address from the address a patient signed up with.
+
+Pass: CloudMailin's message log shows status `201`, and the question appears in the doctor's inbox marked
+**By email**. A quick tunnel gets a new address every time it starts, so update the Target URL whenever you restart
+`cloudflared`. CloudMailin can only deliver while your laptop, the servers and the tunnel are running.
+
 **B. IMAP mailbox (the backend reads a mailbox itself).** Use a dedicated mailbox for the bot, ideally with an app
 password. In `backend/.env`:
 

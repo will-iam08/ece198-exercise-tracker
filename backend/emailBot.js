@@ -3,10 +3,12 @@ import { bodyFields, fail } from './validate.js';
 
 // The email bot turns an email from a registered patient into a message in
 // their doctors' inbox. Mail reaches it in one of two ways:
-//   1. a mail service POSTs { from, subject, text } to /api/bot/inbound-email
-//      with the shared secret in the X-Bot-Secret header, or
+//   1. a mail service POSTs to /api/bot/inbound-email with the shared secret,
+//      either as { from, subject, text } with an X-Bot-Secret header, or in
+//      CloudMailin's "JSON (Normalized)" format with "Authorization: Bearer
+//      <secret>", or
 //   2. the optional IMAP poller reads unread mail from a mailbox.
-// Both go through ingestEmail, so they store exactly the same thing.
+// All of them go through ingestEmail, so they store exactly the same thing.
 
 export const MAX_SUBJECT = 200;
 export const MAX_BODY = 4000;
@@ -60,16 +62,51 @@ export function secretMatches(given, expected) {
   return timingSafeEqual(digest(given), digest(expected));
 }
 
+// The secret from X-Bot-Secret, or from "Authorization: Bearer <secret>" for
+// services that can only set the Authorization header.
+export function requestSecret(req) {
+  const header = req.get('X-Bot-Secret');
+  if (header !== undefined) return header;
+  const match = /^Bearer\s+(.+)$/i.exec(req.get('Authorization') ?? '');
+  return match ? match[1].trim() : undefined;
+}
+
+// CloudMailin's "JSON (Normalized)" body has `envelope` and `headers` objects
+// (header names in lower case) and the text in `plain`, `reply_plain` and `html`.
+export function isCloudMailin(body) {
+  const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  return isObject(body) && isObject(body.headers) && isObject(body.envelope);
+}
+
+// -> { from, subject, text }. The From header is preferred to the envelope
+// sender, which is often a bounce address. The reply CloudMailin extracts
+// (without the quoted thread) is preferred to the full plain text, and HTML is
+// used only when there is no plain text.
+export function fromCloudMailin(body) {
+  const first = value => (Array.isArray(value) ? value[0] : value);
+  const nonEmpty = value => (typeof value === 'string' && value.trim() ? value : '');
+  const from = nonEmpty(first(body.headers.from)) || nonEmpty(body.envelope.from);
+  const subject = nonEmpty(first(body.headers.subject));
+  const text = nonEmpty(body.reply_plain) || nonEmpty(body.plain) || (nonEmpty(body.html) ? htmlToText(body.html) : '');
+  return { from, subject, text };
+}
+
 export function registerBotRoutes(app, { db, webhookSecret }) {
   app.post('/api/bot/inbound-email', (req, res) => {
     // Without BOT_WEBHOOK_SECRET the route does not exist.
     if (!webhookSecret) fail(404, 'Route not found');
-    if (!secretMatches(req.get('X-Bot-Secret'), webhookSecret)) fail(401, 'Bot secret is missing or incorrect');
-    bodyFields(req.body, ['from', 'text'], ['subject']);
-    if (typeof req.body.from !== 'string') fail(400, 'from must be a string');
-    if (typeof req.body.text !== 'string') fail(400, 'text must be a string');
-    if (req.body.subject !== undefined && typeof req.body.subject !== 'string') fail(400, 'subject must be a string');
-    const result = ingestEmail(db, req.body);
+    if (!secretMatches(requestSecret(req), webhookSecret)) fail(401, 'Bot secret is missing or incorrect');
+    let email;
+    if (isCloudMailin(req.body)) {
+      email = fromCloudMailin(req.body);
+    } else {
+      bodyFields(req.body, ['from', 'text'], ['subject']);
+      if (typeof req.body.from !== 'string') fail(400, 'from must be a string');
+      if (typeof req.body.text !== 'string') fail(400, 'text must be a string');
+      if (req.body.subject !== undefined && typeof req.body.subject !== 'string') fail(400, 'subject must be a string');
+      email = req.body;
+    }
+    const result = ingestEmail(db, email);
     if (result.stored) return res.status(201).json({ stored: true, message_id: result.message.id });
     if (result.reason === 'empty_body') fail(400, 'text must contain the message');
     // Unknown and unreadable senders are accepted but not stored, so the mail

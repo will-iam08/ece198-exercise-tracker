@@ -43,7 +43,9 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {} }) {
     next();
   });
   // Forwarded emails can be longer than any form on the site; the bot trims them on ingest.
-  app.use('/api/bot/inbound-email', express.json({ limit: '256kb' }));
+  // CloudMailin's free plan allows 512 KB emails; as JSON (with the HTML part
+  // and Base64 attachments) one can approach 700 KB.
+  app.use('/api/bot/inbound-email', express.json({ limit: '1mb' }));
   app.use(express.json({ limit: '16kb' }));
 
   function transaction(fn) {

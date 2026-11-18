@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { createDatabase } from '../db.js';
-import { findTextPart, htmlToText, ingestEmail, parseAddress, pollMailbox, secretMatches, startImapPoller } from '../emailBot.js';
+import {
+  findTextPart, fromCloudMailin, htmlToText, ingestEmail, isCloudMailin, parseAddress, pollMailbox, requestSecret, secretMatches,
+  startImapPoller,
+} from '../emailBot.js';
 import { imapSettings, parseCorsOrigins } from '../config.js';
 import { fixture } from './fixture.js';
 
@@ -65,6 +68,85 @@ test('the inbound-email webhook needs the secret, matches patients case-insensit
   assert.equal(longRow.subject, '(no subject)');
 
   assert.deepEqual((await f.request('/api/bot/info', { token: pat.token })).data, { address: 'bot@clinic.example', email: 'pat.smith@example.com' });
+});
+
+// A trimmed CloudMailin "JSON (Normalized)" body, shaped like their documented example.
+function cloudMailinEmail({ from = 'Pat Smith <Pat.Smith@Example.com>', subject = 'Question about rows', plain = 'Is 120 bpm after the row okay?\n', ...rest } = {}) {
+  return {
+    headers: { return_path: 'bounce-123@mail.example.com', from, to: 'abc123@cloudmailin.net', subject, date: 'Mon, 16 Nov 2026 17:00:01 +0000' },
+    envelope: { to: 'abc123@cloudmailin.net', from: 'bounce-123@mail.example.com', recipients: ['abc123@cloudmailin.net'], spf: { result: 'pass', domain: 'example.com' }, tls: true },
+    plain,
+    html: `<p>${plain}</p>`,
+    attachments: [],
+    ...rest,
+  };
+}
+
+test('CloudMailin bodies and Bearer secrets are read correctly', () => {
+  assert.equal(isCloudMailin(cloudMailinEmail()), true);
+  for (const other of [{ from: 'a@example.com', text: 'hi' }, { headers: {}, envelope: [] }, null, [], 'text']) {
+    assert.equal(isCloudMailin(other), false, JSON.stringify(other));
+  }
+  assert.deepEqual(fromCloudMailin(cloudMailinEmail()), {
+    from: 'Pat Smith <Pat.Smith@Example.com>', subject: 'Question about rows', text: 'Is 120 bpm after the row okay?\n',
+  });
+  // The extracted reply wins over the full text with the quoted thread.
+  assert.equal(fromCloudMailin(cloudMailinEmail({ reply_plain: 'Yes please.', plain: 'Yes please.\n\n> earlier message' })).text, 'Yes please.');
+  // HTML is used only when there is no plain text.
+  assert.equal(fromCloudMailin(cloudMailinEmail({ plain: '', html: '<p>Only <b>HTML</b></p>' })).text.trim(), 'Only HTML');
+  // Without a From header the envelope sender is used.
+  const noHeader = cloudMailinEmail();
+  delete noHeader.headers.from;
+  assert.equal(fromCloudMailin(noHeader).from, 'bounce-123@mail.example.com');
+  // A repeated header arrives as an array; the first value is used.
+  assert.equal(fromCloudMailin(cloudMailinEmail({ subject: ['First', 'Second'] })).subject, 'First');
+
+  const req = headers => ({ get: name => headers[name.toLowerCase()] });
+  assert.equal(requestSecret(req({ 'x-bot-secret': 'abc' })), 'abc');
+  assert.equal(requestSecret(req({ authorization: 'Bearer abc' })), 'abc');
+  assert.equal(requestSecret(req({ authorization: 'bearer  abc ' })), 'abc');
+  assert.equal(requestSecret(req({ authorization: 'Basic YWJj' })), undefined);
+  assert.equal(requestSecret(req({})), undefined);
+  // An explicit X-Bot-Secret is never overridden by the Authorization header.
+  assert.equal(requestSecret(req({ 'x-bot-secret': 'wrong', authorization: `Bearer ${secret}` })), 'wrong');
+});
+
+test('the webhook accepts CloudMailin emails with a Bearer secret', async t => {
+  const f = await fixture(t, ':memory:', { bot: { webhookSecret: secret, address: 'abc123@cloudmailin.net' } });
+  const pat = await f.register('pat.smith@example.com');
+  const doctor = await f.staff('doc@example.com', [pat.user.id]);
+  const post = (body, { auth = `Bearer ${secret}`, status = 201 } = {}) => f.request('/api/bot/inbound-email', {
+    method: 'POST', body, status, headers: auth === null ? {} : { Authorization: auth },
+  });
+  const count = () => f.db.prepare('SELECT COUNT(*) AS n FROM patient_messages').get().n;
+
+  await post(cloudMailinEmail(), { auth: null, status: 401 });
+  await post(cloudMailinEmail(), { auth: 'Bearer wrong-secret-0123456789', status: 401 });
+  await post(cloudMailinEmail(), { auth: secret, status: 401 });
+  assert.equal(count(), 0);
+
+  const stored = (await post(cloudMailinEmail())).data;
+  assert.equal(stored.stored, true);
+  const row = f.db.prepare('SELECT * FROM patient_messages WHERE id = ?').get(stored.message_id);
+  assert.equal(row.participant_id, pat.user.id);
+  assert.equal(row.sender_email, 'pat.smith@example.com');
+  assert.equal(row.subject, 'Question about rows');
+  assert.equal(row.body, 'Is 120 bpm after the row okay?');
+  assert.equal(row.source, 'email_bot');
+
+  // Unknown senders are accepted but not stored, so CloudMailin does not retry.
+  assert.deepEqual((await post(cloudMailinEmail({ from: 'Stranger <stranger@example.com>' }), { status: 202 })).data, { stored: false });
+  // An email with no text at all is refused.
+  await post(cloudMailinEmail({ plain: '', html: '' }), { status: 400 });
+  // Extra CloudMailin fields (attachments, reply_plain, ...) are fine; a large email still fits.
+  const big = cloudMailinEmail({ attachments: [{ file_name: 'scan.pdf', content_type: 'application/pdf', size: 600000, content: 'A'.repeat(600000) }] });
+  assert.equal((await post(big)).data.stored, true);
+  assert.equal(count(), 2);
+
+  // The doctor sees the email in the inbox.
+  const inbox = (await f.request('/api/doctor/messages', { token: doctor.token })).data;
+  assert.equal(inbox.messages.length, 2);
+  assert.ok(inbox.messages.every(message => message.source === 'email_bot'));
 });
 
 test('the webhook does not exist without BOT_WEBHOOK_SECRET', async t => {
