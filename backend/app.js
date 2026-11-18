@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { hashPassword, verifyPassword, hashToken, newToken, publicUser } from './security.js';
 import { EXERCISES } from './exercises.js';
 import { registerSessionRoutes } from './sessions.js';
+import { applyDeviceEvent } from './deviceEvents.js';
 import { bodyFields, fail, integer, queryFields, queryInteger, text } from './validate.js';
 
 const legacyExercises = ['Bicep curls', 'Squats', 'Arm raises'];
@@ -302,10 +303,23 @@ export function createApp({ db, corsOrigin = 'http://localhost:5173' }) {
 
   app.get('/api/device/workout', deviceAuth, (req, res) => {
     const workout = db.prepare("SELECT * FROM workouts WHERE device_id = ? AND status IN ('pending', 'active')").get(req.device.id);
+    if (workout) {
+      workout.device_seen_at = new Date().toISOString();
+      db.prepare('UPDATE workouts SET device_seen_at = ? WHERE id = ?').run(workout.device_seen_at, workout.id);
+    }
     res.json({ workout: workout || null });
   });
 
   app.post('/api/device/workouts/:id/updates', deviceAuth, (req, res) => {
+    const target = db.prepare('SELECT kind FROM workouts WHERE id = ? AND device_id = ?').get(req.params.id, req.device.id);
+    if (target?.kind === 'reps') {
+      res.json(transaction(() => {
+        const workout = db.prepare('SELECT * FROM workouts WHERE id = ? AND device_id = ?').get(req.params.id, req.device.id);
+        if (!workout) fail(404, 'Workout not found');
+        return applyDeviceEvent(db, workout, req.body, new Date().toISOString());
+      }));
+      return;
+    }
     bodyFields(req.body, ['sequence', 'repetitions', 'elapsed_seconds'], ['heart_rate_bpm', 'completed']);
     const sequence = integer(req.body.sequence, 'sequence', 1, 2_147_483_647);
     const repetitions = integer(req.body.repetitions, 'repetitions', 0, 1_000_000);
