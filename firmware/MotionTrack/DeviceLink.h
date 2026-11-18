@@ -66,6 +66,8 @@ class DeviceLink {
   bool polledOnce_ = false;
   uint32_t lastWifiAttempt_ = 0;
   bool wifiBegun_ = false;
+  int lastWifiStatus_ = -1;
+  uint32_t wifiStatusSince_ = 0;
   bool wasConnected_ = false;
   uint32_t nextSendAt_ = 0;
   bool sendWaiting_ = false;

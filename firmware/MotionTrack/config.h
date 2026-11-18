@@ -25,7 +25,7 @@ const uint32_t ENDED_SHOW_MS = 3000;  // "Done" / "Session ended" after the webs
 // Network (ms).
 const uint32_t POLL_MS = 1000;          // GET /api/device/workout period
 const uint32_t HTTP_TIMEOUT_MS = 3000;  // connect and read timeout per request
-const uint32_t WIFI_RETRY_MS = 5000;    // reconnect attempt period
+const uint32_t WIFI_RETRY_MS = 20000;   // restart a join only after the link has shown no change for this long
 const uint32_t UPLOAD_BACKOFF_MIN_MS = 1000;  // retry delay after a network error or 5xx...
 const uint32_t UPLOAD_BACKOFF_MAX_MS = 8000;  // ...doubling up to this
 

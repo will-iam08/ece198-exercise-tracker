@@ -199,7 +199,12 @@ void DeviceLink::run() {
 }
 
 void DeviceLink::ensureWifi(uint32_t now) {
-  const bool up = WiFi.status() == WL_CONNECTED;
+  const wl_status_t status = WiFi.status();
+  const bool up = status == WL_CONNECTED;
+  if ((int)status != lastWifiStatus_) {  // a join moving forward (or failing) changes the status
+    lastWifiStatus_ = (int)status;
+    wifiStatusSince_ = now;
+  }
   if (up && !wasConnected_) {
     Serial.printf("Wi-Fi connected to \"%s\", IP %s. Server: %s\n", WIFI_SSID,
                   WiFi.localIP().toString().c_str(), API_BASE_URL);
@@ -207,11 +212,16 @@ void DeviceLink::ensureWifi(uint32_t now) {
     Serial.println("Wi-Fi lost. Reconnecting.");
   }
   wasConnected_ = up;
-  if (!up && (!wifiBegun_ || now - lastWifiAttempt_ >= WIFI_RETRY_MS)) {
-    if (!wifiBegun_) Serial.printf("Wi-Fi: connecting to \"%s\"\n", WIFI_SSID);
-    if (wifiBegun_) WiFi.disconnect();
+  // The core's auto-reconnect retries most failures by itself. Restarting the join is only a fallback for a
+  // link that has shown no change for WIFI_RETRY_MS, so a slow join (scan, handshake, DHCP) is never cut short.
+  if (!up && !wifiBegun_) {
+    Serial.printf("Wi-Fi: connecting to \"%s\"\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     wifiBegun_ = true;
+    lastWifiAttempt_ = now;
+  } else if (!up && now - lastWifiAttempt_ >= WIFI_RETRY_MS && now - wifiStatusSince_ >= WIFI_RETRY_MS) {
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     lastWifiAttempt_ = now;
   }
   Guard g(lock_);

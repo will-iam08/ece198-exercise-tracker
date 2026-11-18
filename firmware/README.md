@@ -150,7 +150,7 @@ Serial also logs Wi-Fi and server status changes, each rep, each accepted BPM an
 | `CHECKIN_TRY_AGAIN_MS` | 1500 | How long "Try again" stays up before the next attempt. |
 | `POLL_MS` | 1000 | How often the device asks the website for the current exercise. |
 | `HTTP_TIMEOUT_MS` | 3000 | Connect and response timeout per request. |
-| `WIFI_RETRY_MS` | 5000 | Wi-Fi reconnect attempt period. |
+| `WIFI_RETRY_MS` | 20000 | The Wi-Fi join is restarted only after the link has shown no change for this long. Between restarts the ESP32 reconnects by itself. |
 | `UPLOAD_BACKOFF_MIN_MS` / `UPLOAD_BACKOFF_MAX_MS` | 1000 / 8000 | Resend delay after a failed upload. |
 | `WARNING_MS` | 5000 | How long FIX YOUR FORM stays up. |
 
