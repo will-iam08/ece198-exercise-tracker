@@ -116,3 +116,22 @@ test('constraints', async t => {
   db.prepare("UPDATE exercise_sessions SET status = 'ended', ended_at = ? WHERE id = 's1'").run(now);
   db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s2', 'p1', 'd1', 'active', ?, ?)").run(now, now);
 });
+
+test('workout CHECK rejects NULL required fields', async t => {
+  const path = await tempPath(t);
+  await seedVersion1(path);
+  const db = createDatabase(path);
+  t.after(() => db.close());
+  db.prepare("UPDATE workouts SET status = 'cancelled' WHERE status = 'pending'").run();
+  db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s1', 'p1', 'd1', 'active', ?, ?)").run(now, now);
+  const reps = (exerciseId, targetReps, phase) => db.prepare(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
+    session_id, exercise_id, target_reps, phase, status, created_at, updated_at)
+    VALUES ('n1', 'p1', 'd1', 'Arm Curl', 'reps', 's1', ?, ?, ?, 'pending', ?, ?)`).run(exerciseId, targetReps, phase, now, now);
+  assert.throws(() => reps('arm_curl', null, 'before_bpm'), /CHECK constraint/i);
+  assert.throws(() => reps(null, 10, 'before_bpm'), /CHECK constraint/i);
+  assert.throws(() => reps('arm_curl', 10, null), /CHECK constraint/i);
+  assert.throws(() => db.prepare(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
+    target_duration_seconds, status, created_at, updated_at)
+    VALUES ('n2', 'p1', 'd1', 'Curl', 'timed', NULL, 'pending', ?, ?)`).run(now, now), /CHECK constraint/i);
+  reps('arm_curl', 10, 'before_bpm');
+});

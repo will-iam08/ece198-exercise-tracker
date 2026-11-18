@@ -47,12 +47,12 @@ CREATE TABLE workouts_new (
   updated_at TEXT NOT NULL,
   FOREIGN KEY (device_id, participant_id) REFERENCES devices(id, participant_id),
   CHECK (
-    (kind = 'timed' AND target_duration_seconds BETWEEN 1 AND 86400)
+    (kind = 'timed' AND target_duration_seconds IS NOT NULL AND target_duration_seconds BETWEEN 1 AND 86400)
     OR (kind = 'reps'
       AND session_id IS NOT NULL
-      AND exercise_id IN ('arm_curl', 'shoulder_press', 'back_row')
-      AND target_reps BETWEEN 1 AND 50
-      AND phase IN ('before_bpm', 'counting', 'after_bpm', 'done'))
+      AND exercise_id IS NOT NULL AND exercise_id IN ('arm_curl', 'shoulder_press', 'back_row')
+      AND target_reps IS NOT NULL AND target_reps BETWEEN 1 AND 50
+      AND phase IS NOT NULL AND phase IN ('before_bpm', 'counting', 'after_bpm', 'done'))
   )
 ) STRICT;
 `;
