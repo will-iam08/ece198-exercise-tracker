@@ -147,7 +147,6 @@ export function AuthScreen({ portal = 'patient' }) {
           <p className="switch-mode portal-links">
             {portal !== 'patient' && <a className="portal-link" href="/"><Icon name="user" />Patient sign-in</a>}
             {portal !== 'doctor' && <a className="portal-link" href="/doctor"><Icon name="users" />Doctor sign-in</a>}
-            {portal === 'doctor' && <a className="portal-link" href="/admin"><Icon name="shield" />Admin sign-in</a>}
           </p>
           <p className="hint"><Icon name="lock" /> For your privacy you are signed out when this page is closed or reloaded.</p>
         </div>
