@@ -127,7 +127,9 @@ function StartSession({ devices, devicesError, reloadDevices, selectedDeviceId, 
   );
 }
 
-function EndSession({ session, onEnded }) {
+// Ends the session. If an exercise is still running, the server saves it as
+// Incomplete, so the confirm step says so.
+function EndSession({ session, openWorkout, onEnded }) {
   const { api } = useAuth();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -155,7 +157,16 @@ function EndSession({ session, onEnded }) {
   }
   return (
     <div className="alert alert-warning" role="group" aria-label="Confirm ending the session">
-      <p>End this workout session? You can start a new session at any time.</p>
+      <p>
+        End this workout session?{' '}
+        {openWorkout && (
+          <strong>
+            The {openWorkout.exercise_name} exercise that is running now will be saved as Incomplete, with the{' '}
+            {openWorkout.repetitions} rep{openWorkout.repetitions === 1 ? '' : 's'} counted so far.{' '}
+          </strong>
+        )}
+        You can start a new session at any time.
+      </p>
       <div className="button-row">
         <button type="button" className="button button-danger" disabled={busy} onClick={end}>{busy ? 'Ending…' : 'Yes, end session'}</button>
         <button type="button" className="button" disabled={busy} onClick={() => setConfirming(false)}>No, keep going</button>
@@ -307,8 +318,11 @@ export function SessionScreen({ devices, devicesError, reloadDevices, selectedDe
               onStarted={updateWorkout}
               onConflict={() => { reload(); loadOpenTimed(); }}
             />
-            <EndSession session={session} onEnded={endedSession => { reload(endedSession); onChanged(); }} />
           </>
+        )}
+
+        {!ended && (
+          <EndSession session={session} openWorkout={openWorkout} onEnded={endedSession => { reload(endedSession); onChanged(); }} />
         )}
 
         <h3>Exercises in this session</h3>
