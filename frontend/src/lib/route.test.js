@@ -8,5 +8,10 @@ describe('currentPortal', () => {
     expect(currentPortal('/doctor/')).toBe('doctor');
     expect(currentPortal('/doctor/anything')).toBe('doctor');
     expect(currentPortal('/doctors')).toBe('patient');
+    expect(currentPortal('/admin')).toBe('admin');
+    expect(currentPortal('/admin/')).toBe('admin');
+    expect(currentPortal('/admin/patients')).toBe('admin');
+    expect(currentPortal('/administrator')).toBe('patient');
+    expect(currentPortal('/doctor/admin')).toBe('doctor');
   });
 });

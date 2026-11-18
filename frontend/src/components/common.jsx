@@ -24,6 +24,13 @@ const ICON_PATHS = {
   dumbbell: 'M6 7v10M3 9.5v5M18 7v10M21 9.5v5M6 12h12',
   arrowLeft: 'M19 12H5M11 6l-6 6 6 6',
   target: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM12 11v2',
+  mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
+  send: 'M21 3L10 14M21 3l-7 18-4-7-7-4z',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+  clipboard: 'M9 4h6v3H9zM7 5.5H5V21h14V5.5h-2M8.5 12h7M8.5 16h5',
+  plus: 'M12 5v14M5 12h14',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  minus: 'M5 12h14',
 };
 
 export function Icon({ name, className = 'icon' }) {
@@ -104,5 +111,28 @@ export function Pager({ data, page, pageSize, itemCount, onPage, label }) {
       <p role="status">Showing {first}–{last} of {total} (page {page + 1} of {pageCount})</p>
       <button type="button" className="button" disabled={last >= total} onClick={() => onPage(page + 1)}>Older →</button>
     </nav>
+  );
+}
+
+const CHECK_STYLES = {
+  met: { badge: 'completed', icon: 'check', word: 'Met' },
+  in: { badge: 'completed', icon: 'check', word: 'In range' },
+  below: { badge: 'incomplete', icon: 'alert', word: 'Below' },
+  above: { badge: 'incomplete', icon: 'alert', word: 'Above' },
+  none: { badge: 'cancelled', icon: 'minus', word: 'No reading' },
+  pending: { badge: 'pending', icon: 'clock', word: 'Not yet' },
+};
+
+// How one exercise compares with the care plan: a short badge word plus the
+// full sentence, so the result never depends on colour.
+export function PlanCheck({ check }) {
+  if (!check) return null;
+  const style = CHECK_STYLES[check.state] ?? CHECK_STYLES.pending;
+  return (
+    <span className="plan-check">
+      <span className={`badge badge-${style.badge}`}><Icon name={style.icon} />{style.word}</span>
+      <span className="visually-hidden">: </span>
+      <span className="plan-check-text">{check.label}</span>
+    </span>
   );
 }

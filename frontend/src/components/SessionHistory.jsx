@@ -18,7 +18,7 @@ function summary(session) {
 // Workout sessions, newest first, each expandable to its exercise table; then
 // the read-only list of earlier timed workouts.
 export function SessionHistory({
-  devices, refreshKey, path = '/api/sessions', timedPath, owner = 'You have', heading = 'History', headingLevel = 2,
+  devices, refreshKey, path = '/api/sessions', timedPath, owner = 'You have', heading = 'History', headingLevel = 2, plan,
 }) {
   const { api } = useAuth();
   const { data, error, page, setPage, retry } = usePagedList(api, path, {}, PAGE_SIZE, refreshKey);
@@ -73,7 +73,7 @@ export function SessionHistory({
                   </button>
                   {open && (
                     <div id={tableId} className="session-detail">
-                      <SessionTable session={session} caption={`Exercises in the session of ${when}`} />
+                      <SessionTable session={session} plan={plan} caption={`Exercises in the session of ${when}`} />
                     </div>
                   )}
                 </li>

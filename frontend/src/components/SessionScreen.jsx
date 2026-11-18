@@ -4,6 +4,7 @@ import { useAuth } from '../auth.jsx';
 import { useSession } from '../hooks/useSession.js';
 import { formatDateTime } from '../lib/format.js';
 import { bpmLabel, isOpen, statusLabel, withWorkout } from '../lib/exerciseStatus.js';
+import { CarePlanCard } from './CarePlan.jsx';
 import { ErrorMessage, Icon, Loading, ScreenHeading } from './common.jsx';
 import { ExercisePicker } from './ExercisePicker.jsx';
 import { LiveExercise } from './LiveExercise.jsx';
@@ -178,7 +179,9 @@ function EndSession({ session, openWorkout, onEnded }) {
 
 // The Session tab: start a session, choose exercises one at a time, follow the
 // running exercise, and end the session.
-export function SessionScreen({ devices, devicesError, reloadDevices, selectedDeviceId, onSelectDevice, onGoToDevices, onChanged }) {
+export function SessionScreen({
+  devices, devicesError, reloadDevices, selectedDeviceId, onSelectDevice, onGoToDevices, onChanged, plan, planError, reloadPlan,
+}) {
   const { api } = useAuth();
   const [sessionId, setSessionId] = useState(null);
   const [finding, setFinding] = useState(true);
@@ -315,6 +318,7 @@ export function SessionScreen({ devices, devicesError, reloadDevices, selectedDe
             )}
             <ExercisePicker
               sessionId={session.id}
+              plan={plan}
               heading={lastWorkout ? 'Choose next exercise' : 'Choose your first exercise'}
               onStarted={updateWorkout}
               onConflict={() => { reload(); loadOpenTimed(); }}
@@ -327,7 +331,7 @@ export function SessionScreen({ devices, devicesError, reloadDevices, selectedDe
         )}
 
         <h3>Exercises in this session</h3>
-        <SessionTable session={session} />
+        <SessionTable session={session} plan={plan} />
       </>
     );
   }
@@ -337,6 +341,7 @@ export function SessionScreen({ devices, devicesError, reloadDevices, selectedDe
       <div id="session-heading"><ScreenHeading>Workout session</ScreenHeading></div>
       <OpenTimedAlert workouts={openTimed} deviceName={deviceName} onCancelled={() => loadOpenTimed()} />
       {notice && <p className="alert alert-info" role="status">{notice}</p>}
+      <CarePlanCard plan={plan} error={planError} onRetry={reloadPlan} />
       {body}
     </section>
   );

@@ -1,6 +1,10 @@
 // Thin wrapper around fetch for the exercise-tracker backend.
-// The base URL is public configuration; tokens are never read from env files.
-export const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+// By default the site calls /api on its own address (the Vite server forwards
+// it to the backend), which works on localhost, on the LAN and through a
+// tunnel. VITE_API_ORIGIN points the browser at a separate API origin
+// instead; VITE_API_BASE_URL is the older name for the same setting.
+// Tokens are never read from env files.
+export const API_BASE_URL = (import.meta.env?.VITE_API_ORIGIN || import.meta.env?.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
 export class ApiError extends Error {
   constructor(message, status, retryAfterSeconds = null, details = {}) {

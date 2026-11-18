@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import { prescribedReps } from '../lib/carePlan.js';
 import { parseTargetReps } from '../lib/exerciseStatus.js';
 import { ErrorMessage, Icon } from './common.jsx';
 
@@ -12,7 +13,9 @@ const DEFAULT_EXERCISES = [
 ];
 
 // Choose an exercise and a rep target, then start it on the session's device.
-export function ExercisePicker({ sessionId, heading, onStarted, onConflict }) {
+// When the care plan prescribes reps for the chosen exercise, the target is
+// filled in with that number (the patient can still change it).
+export function ExercisePicker({ sessionId, heading, onStarted, onConflict, plan }) {
   const { api } = useAuth();
   const [exercises, setExercises] = useState(DEFAULT_EXERCISES);
   const [choice, setChoice] = useState(null);
@@ -29,6 +32,15 @@ export function ExercisePicker({ sessionId, heading, onStarted, onConflict }) {
   }, [api]);
 
   const parsed = parseTargetReps(target);
+  const chosen = exercises.find(exercise => exercise.id === choice);
+  const prescribed = choice ? prescribedReps(plan, choice) : null;
+
+  function choose(exerciseId) {
+    setChoice(exerciseId);
+    setError('');
+    const reps = prescribedReps(plan, exerciseId);
+    if (reps !== null) setTarget(String(reps));
+  }
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -61,11 +73,14 @@ export function ExercisePicker({ sessionId, heading, onStarted, onConflict }) {
         <div className="exercise-cards">
           {exercises.map(exercise => (
             <label key={exercise.id} className={choice === exercise.id ? 'exercise-card exercise-card-selected' : 'exercise-card'}>
-              <input type="radio" name="exercise" value={exercise.id} checked={choice === exercise.id} onChange={() => { setChoice(exercise.id); setError(''); }} />
+              <input type="radio" name="exercise" value={exercise.id} checked={choice === exercise.id} onChange={() => choose(exercise.id)} />
               <span className="exercise-card-body">
                 <strong className="exercise-card-title"><Icon name="dumbbell" />{exercise.name}</strong>
                 <span className="placement" aria-hidden="true"><Icon name="device" />{exercise.placement}</span>
                 <span className="hint block">Wear the device on your {exercise.placement}.</span>
+                {prescribedReps(plan, exercise.id) !== null && (
+                  <span className="prescribed block"><Icon name="clipboard" />Doctor’s target: {prescribedReps(plan, exercise.id)} reps</span>
+                )}
               </span>
             </label>
           ))}
@@ -85,7 +100,10 @@ export function ExercisePicker({ sessionId, heading, onStarted, onConflict }) {
             aria-describedby="target-reps-hint"
             aria-invalid={parsed.error ? true : undefined}
           />
-          <p className="hint" id="target-reps-hint">A whole number from 1 to 50. The device stops counting at this number.</p>
+          <p className="hint" id="target-reps-hint">
+            A whole number from 1 to 50. The device stops counting at this number.
+            {prescribed !== null && ` Your doctor prescribed ${prescribed} reps for ${chosen?.name ?? 'this exercise'}.`}
+          </p>
         </div>
       </fieldset>
       {error && <ErrorMessage error={error} />}

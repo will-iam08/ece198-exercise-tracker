@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { useSession } from '../hooks/useSession.js';
 import { deviceLine, isOpen, isStale, notRespondingText } from '../lib/exerciseStatus.js';
 import { formatDateTime } from '../lib/format.js';
+import { CarePlanForm } from './CarePlan.jsx';
 import { Avatar, ErrorMessage, Icon, LiveBadge, Loading } from './common.jsx';
 import { SessionHistory } from './SessionHistory.jsx';
 import { SessionTable } from './SessionTable.jsx';
@@ -12,7 +13,7 @@ const RECHECK_MS = 5000;
 // The session the patient is doing now. It refreshes every second while an
 // exercise is open, and every 5 seconds between exercises so the next one
 // appears. Read-only: no buttons that change anything.
-function LiveSession({ sessionId, patientName }) {
+function LiveSession({ sessionId, patientName, plan }) {
   const { api } = useAuth();
   const { session, serverTime, loading, disconnected, error, reload } = useSession(api, sessionId, { live: true });
   const openWorkout = session?.workouts.find(isOpen) ?? null;
@@ -59,18 +60,22 @@ function LiveSession({ sessionId, patientName }) {
           ) : (
             session.status === 'active' && <p className="idle-text"><Icon name="clock" />No exercise is running at the moment.</p>
           )}
-          <SessionTable session={session} serverTime={serverTime} caption={`Live exercises for ${patientName}`} />
+          <SessionTable session={session} serverTime={serverTime} plan={plan} caption={`Live exercises for ${patientName}`} />
         </>
       )}
     </section>
   );
 }
 
-export function PatientDetail({ patient, listError, onRetry, onBack }) {
+// One patient's record for a doctor or an admin. Exercise records are read
+// only; the care plan can be edited. `missingText` is shown when the patient
+// is no longer in the list (for a doctor: no longer assigned).
+export function PatientDetail({ patient, listError, onRetry, onBack, missingText = 'This patient is no longer assigned to you.' }) {
+  const [plan, setPlan] = useState(null);
   const back = (
     <div className="context-bar">
       <button type="button" className="button button-quiet" onClick={onBack}>← All patients</button>
-      {patient && <p>Viewing <strong>{patient.name}</strong> ({patient.email}), read only</p>}
+      {patient && <p>Viewing <strong>{patient.name}</strong> ({patient.email})</p>}
     </div>
   );
 
@@ -81,7 +86,7 @@ export function PatientDetail({ patient, listError, onRetry, onBack }) {
         <div className="card">
           {listError
             ? <ErrorMessage error={listError} onRetry={onRetry} />
-            : <p className="empty">This patient is no longer assigned to you.</p>}
+            : <p className="empty">{missingText}</p>}
         </div>
       </>
     );
@@ -103,7 +108,7 @@ export function PatientDetail({ patient, listError, onRetry, onBack }) {
           </span>
           {patient.active_session_id
             ? <LiveBadge />
-            : <span className="badge badge-readonly"><Icon name="lock" />Read only</span>}
+            : <span className="badge badge-readonly"><Icon name="lock" />Records read only</span>}
         </div>
         {listError && (
           <p className="alert alert-warning" role="status">
@@ -111,13 +116,15 @@ export function PatientDetail({ patient, listError, onRetry, onBack }) {
           </p>
         )}
         {patient.active_session_id && (
-          <LiveSession key={patient.active_session_id} sessionId={patient.active_session_id} patientName={patient.name} />
+          <LiveSession key={patient.active_session_id} sessionId={patient.active_session_id} patientName={patient.name} plan={plan} />
         )}
+        <CarePlanForm key={patient.id} patient={patient} onSaved={setPlan} />
         <SessionHistory
           path={`${base}/sessions`}
           timedPath={`${base}/workouts`}
           owner="This patient has"
           heading={`Workouts for ${patient.name}`}
+          plan={plan}
         />
       </div>
     </>

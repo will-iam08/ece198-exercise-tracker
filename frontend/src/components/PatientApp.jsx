@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { Icon } from './common.jsx';
 import { DevicesPanel } from './DevicesPanel.jsx';
+import { PatientMessages } from './PatientMessages.jsx';
 import { RepProgress } from './RepProgress.jsx';
 import { SessionHistory } from './SessionHistory.jsx';
 import { SessionScreen } from './SessionScreen.jsx';
@@ -10,6 +11,7 @@ const VIEWS = [
   { id: 'session', label: 'Session', icon: 'pulse' },
   { id: 'history', label: 'History', icon: 'history' },
   { id: 'progress', label: 'Progress', icon: 'chart' },
+  { id: 'messages', label: 'Messages', icon: 'mail' },
   { id: 'devices', label: 'My devices', icon: 'device' },
 ];
 
@@ -35,6 +37,19 @@ export function PatientApp() {
 
   useEffect(() => { reloadDevices(); }, [reloadDevices]);
 
+  // The care plan from the patient's doctor, checked again whenever a tab is opened.
+  const [plan, setPlan] = useState(null);
+  const [planError, setPlanError] = useState(null);
+  const reloadPlan = useCallback(async () => {
+    try {
+      setPlan((await api('/api/plan')).plan);
+      setPlanError(null);
+    } catch (failure) {
+      if (failure.status !== 401) setPlanError(failure);
+    }
+  }, [api]);
+  useEffect(() => { reloadPlan(); }, [reloadPlan, view]);
+
   const onChanged = useCallback(() => setRefreshKey(key => key + 1), []);
 
   return (
@@ -56,10 +71,14 @@ export function PatientApp() {
             onSelectDevice={setSelectedDeviceId}
             onGoToDevices={() => setView('devices')}
             onChanged={onChanged}
+            plan={plan}
+            planError={planError}
+            reloadPlan={reloadPlan}
           />
         )}
-        {view === 'history' && <SessionHistory devices={devices} refreshKey={refreshKey} />}
+        {view === 'history' && <SessionHistory devices={devices} refreshKey={refreshKey} plan={plan} />}
         {view === 'progress' && <RepProgress refreshKey={refreshKey} />}
+        {view === 'messages' && <PatientMessages />}
         {view === 'devices' && (
           <DevicesPanel
             devices={devices}

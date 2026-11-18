@@ -3,8 +3,48 @@ import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon, ScreenHeading } from './common.jsx';
 
+const PORTALS = {
+  patient: {
+    eyebrow: 'Patient portal',
+    title: 'Movement exercises, measured.',
+    lead: 'MotionTrack counts your repetitions and checks your heart rate with your wearable device.',
+    heading: 'Sign in',
+    intro: 'Patients sign in here with their email and password.',
+    features: [
+      { icon: 'heart', title: 'Heart rate before and after', text: 'Each exercise starts and ends with a fresh reading.' },
+      { icon: 'target', title: 'Your own rep target', text: 'The device stops counting when you reach it.' },
+      { icon: 'chart', title: 'Progress over time', text: 'See your completed exercises day by day.' },
+    ],
+  },
+  doctor: {
+    eyebrow: 'Doctor portal',
+    title: 'Monitor rehab sessions with confidence.',
+    lead: 'MotionTrack shows each patient’s repetitions and heart rate from their wearable device.',
+    heading: 'Doctor sign-in',
+    intro: 'Doctors sign in here with their email and password.',
+    features: [
+      { icon: 'users', title: 'Your assigned patients', text: 'Only the patients assigned to you are listed.' },
+      { icon: 'pulse', title: 'Live sessions', text: 'Follow reps and heart rate as each exercise happens.' },
+      { icon: 'clipboard', title: 'Care plans and messages', text: 'Set targets and answer questions. Exercise records stay read only.' },
+    ],
+  },
+  admin: {
+    eyebrow: 'Admin portal',
+    title: 'Run the MotionTrack service.',
+    lead: 'Create doctor accounts, assign patients to doctors and see activity across the whole service.',
+    heading: 'Admin sign-in',
+    intro: 'Administrators sign in here with their email and password.',
+    features: [
+      { icon: 'chart', title: 'Overview', text: 'Patients, doctors, sessions, devices and unread messages at a glance.' },
+      { icon: 'link', title: 'Assignments', text: 'Assign any patient to any doctor, or remove an assignment.' },
+      { icon: 'shield', title: 'Doctor accounts', text: 'Create accounts for new doctors.' },
+    ],
+  },
+};
+
 export function AuthScreen({ portal = 'patient' }) {
-  const doctor = portal === 'doctor';
+  const copy = PORTALS[portal] ?? PORTALS.patient;
+  const patient = portal === 'patient';
   const { login, register, notice } = useAuth();
   const [mode, setMode] = useState('login');
   const [name, setName] = useState('');
@@ -12,7 +52,7 @@ export function AuthScreen({ portal = 'patient' }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const registering = !doctor && mode === 'register';
+  const registering = patient && mode === 'register';
 
   function switchMode(next) {
     setMode(next);
@@ -42,30 +82,14 @@ export function AuthScreen({ portal = 'patient' }) {
     return undefined;
   }
 
-  const features = doctor
-    ? [
-        { icon: 'users', title: 'Your assigned patients', text: 'Only the patients assigned to you are listed.' },
-        { icon: 'pulse', title: 'Live sessions', text: 'Follow reps and heart rate as each exercise happens.' },
-        { icon: 'lock', title: 'Read only', text: 'You can review records but never change them.' },
-      ]
-    : [
-        { icon: 'heart', title: 'Heart rate before and after', text: 'Each exercise starts and ends with a fresh reading.' },
-        { icon: 'target', title: 'Your own rep target', text: 'The device stops counting when you reach it.' },
-        { icon: 'chart', title: 'Progress over time', text: 'See your completed exercises day by day.' },
-      ];
-
   return (
     <div className="auth-shell">
       <div className="auth-aside">
-        <p className="auth-eyebrow"><Icon name="pulse" />{doctor ? 'Doctor portal' : 'Patient portal'}</p>
-        <p className="auth-title">{doctor ? 'Monitor rehab sessions with confidence.' : 'Movement exercises, measured.'}</p>
-        <p className="auth-lead">
-          {doctor
-            ? 'MotionTrack shows each patient’s repetitions and heart rate from their wearable device.'
-            : 'MotionTrack counts your repetitions and checks your heart rate with your wearable device.'}
-        </p>
+        <p className="auth-eyebrow"><Icon name={portal === 'admin' ? 'shield' : 'pulse'} />{copy.eyebrow}</p>
+        <p className="auth-title">{copy.title}</p>
+        <p className="auth-lead">{copy.lead}</p>
         <ul className="feature-list">
-          {features.map(feature => (
+          {copy.features.map(feature => (
             <li key={feature.title}>
               <span className="feature-icon"><Icon name={feature.icon} /></span>
               <span><strong>{feature.title}</strong><span className="hint block">{feature.text}</span></span>
@@ -76,14 +100,10 @@ export function AuthScreen({ portal = 'patient' }) {
       <section className="card auth-card" aria-labelledby="auth-heading">
         {notice && <p className="alert alert-info" role="status">{notice}</p>}
         <div id="auth-heading">
-          <ScreenHeading level={2} key={mode}>{registering ? 'Create your account' : doctor ? 'Doctor sign-in' : 'Sign in'}</ScreenHeading>
+          <ScreenHeading level={2} key={mode}>{registering ? 'Create your account' : copy.heading}</ScreenHeading>
         </div>
         <p>
-          {registering
-            ? 'Create a patient account to record your movement exercises.'
-            : doctor
-              ? 'Doctors sign in here with their email and password.'
-              : 'Patients sign in here with their email and password.'}
+          {registering ? 'Create a patient account to record your movement exercises.' : copy.intro}
         </p>
         <form onSubmit={onSubmit} noValidate>
           {registering && (
@@ -115,7 +135,7 @@ export function AuthScreen({ portal = 'patient' }) {
             {busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}
           </button>
         </form>
-        {!doctor && (
+        {patient && (
           <p className="switch-mode">
             {registering ? 'Already have an account?' : 'New patient?'}{' '}
             <button type="button" className="button button-link" onClick={() => switchMode(registering ? 'login' : 'register')}>
@@ -124,10 +144,10 @@ export function AuthScreen({ portal = 'patient' }) {
           </p>
         )}
         <div className="auth-footer">
-          <p className="switch-mode">
-            {doctor
-              ? <a className="portal-link" href="/"><Icon name="user" />Patient sign-in</a>
-              : <a className="portal-link" href="/doctor"><Icon name="users" />Doctor sign-in</a>}
+          <p className="switch-mode portal-links">
+            {portal !== 'patient' && <a className="portal-link" href="/"><Icon name="user" />Patient sign-in</a>}
+            {portal !== 'doctor' && <a className="portal-link" href="/doctor"><Icon name="users" />Doctor sign-in</a>}
+            {portal === 'doctor' && <a className="portal-link" href="/admin"><Icon name="shield" />Admin sign-in</a>}
           </p>
           <p className="hint"><Icon name="lock" /> For your privacy you are signed out when this page is closed or reloaded.</p>
         </div>

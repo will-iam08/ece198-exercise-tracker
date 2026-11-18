@@ -8,8 +8,10 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:lan": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host localhost --port 5173 --strictPort",
+    "preview:lan": "vite preview --host --port 5173 --strictPort",
     "test": "vitest run",
     "fake-device": "node scripts/fake-device.mjs"
   },

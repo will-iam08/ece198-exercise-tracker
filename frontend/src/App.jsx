@@ -2,13 +2,17 @@ import { useAuth } from './auth.jsx';
 import { AuthScreen } from './components/AuthScreen.jsx';
 import { PatientApp } from './components/PatientApp.jsx';
 import { DoctorApp } from './components/DoctorApp.jsx';
+import { AdminApp } from './components/AdminApp.jsx';
 import { Avatar, Icon } from './components/common.jsx';
 import { currentPortal } from './lib/route.js';
 
 const PatientView = PatientApp;
 const DoctorView = DoctorApp;
+const AdminView = AdminApp;
 
 const portal = currentPortal();
+const PORTAL_LABELS = { patient: 'Patient', doctor: 'Doctor', admin: 'Admin' };
+const ROLE_NOTES = { staff: ' (doctor)', admin: ' (admin)' };
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -20,12 +24,12 @@ export default function App() {
           <div className="brand">
             <span className="brand-mark"><Icon name="pulse" /></span>
             <h1>MotionTrack</h1>
-            <p className="portal-label">{portal === 'doctor' ? 'Doctor' : 'Patient'}</p>
+            <p className="portal-label">{PORTAL_LABELS[portal]}</p>
           </div>
           {user && (
             <div className="account">
               <Avatar name={user.name} />
-              <p>Signed in as <strong>{user.name}</strong>{user.role === 'staff' ? ' (doctor)' : ''}</p>
+              <p>Signed in as <strong>{user.name}</strong>{ROLE_NOTES[user.role] ?? ''}</p>
               <button type="button" className="button button-small" onClick={logout}>Sign out</button>
             </div>
           )}
@@ -36,7 +40,8 @@ export default function App() {
         {!user && <AuthScreen portal={portal} />}
         {user?.role === 'participant' && <PatientView key={user.id} />}
         {user?.role === 'staff' && <DoctorView key={user.id} />}
-        {user && !['participant', 'staff'].includes(user.role) && (
+        {user?.role === 'admin' && <AdminView key={user.id} />}
+        {user && !['participant', 'staff', 'admin'].includes(user.role) && (
           <p className="alert alert-error" role="alert">This account type is not supported. Please sign out.</p>
         )}
       </main>
