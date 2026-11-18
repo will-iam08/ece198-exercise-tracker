@@ -40,6 +40,7 @@ class DeviceLink {
   void run();
   void ensureWifi(uint32_t now);
   void poll();
+  void fetchWorkout();
   void sendFront(uint32_t now);
   void retryLast();
   int post(const char* workoutId, const char* body, size_t len, String& reply, String& error);

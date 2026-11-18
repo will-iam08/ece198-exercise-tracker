@@ -224,9 +224,14 @@ void DeviceLink::poll() {
     Guard g(lock_);
     pollNow_ = false;
   }
-  lastPoll_ = millis();
   polledOnce_ = true;
+  fetchWorkout();
+  // Stamp the end of the round trip, so a slow poll (up to the 3 s timeout) cannot make the next one due
+  // at once and starve queued uploads.
+  lastPoll_ = millis();
+}
 
+void DeviceLink::fetchWorkout() {
   static int lastLogged = 0;  // log only changes, not every second
   WiFiClient client;
   HTTPClient http;
