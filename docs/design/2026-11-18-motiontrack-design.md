@@ -1,6 +1,6 @@
 # MotionTrack — rep-based sessions with before/after BPM check-ins
 
-Status: draft for approval · 2026-11-18
+Status: approved · 2026-11-18
 
 ## 1. Intent
 
@@ -179,7 +179,7 @@ Device (Bearer device token)
   Try again; `Arm Curl` + `7 / 10` (large); existing FIX YOUR FORM screen; "Done".
 - Serial bench mode: `1`/`2`/`3` select an exercise locally only when no website workout is active; counts print as today.
 - Retry demo control: Serial `r` resends the last acknowledged upload byte-identical; Serial prints the server's
-  `duplicate:true` reply, and the website's count does not change. (Pending user confirmation.)
+  `duplicate:true` reply, and the website's count does not change.
 
 ## 10. Website
 
