@@ -91,8 +91,11 @@ export function PatientMessages() {
       <p>Ask your doctor a question about your exercises. Replies appear below.</p>
       {bot?.address && (
         <p className="alert alert-info">
-          <Icon name="mail" /> You can also email <strong className="break">{bot.address}</strong> from{' '}
-          <strong className="break">{bot.email}</strong>. Emails from other addresses are not delivered.
+          <Icon name="mail" /> You can also email <strong>MotionTrack Care Bot</strong> (
+          <a href={`mailto:${encodeURIComponent(`MotionTrack Care Bot <${bot.address}>`)}`}>
+            <strong className="break">{bot.address}</strong>
+          </a>
+          ) from <strong className="break">{bot.email}</strong>. Emails from other addresses are not delivered.
         </p>
       )}
       <AskForm onSent={() => load()} />
