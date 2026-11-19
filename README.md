@@ -13,7 +13,7 @@ An exercise is **Complete** only when every rep was counted and both heart-rate 
 The website says "patient", "doctor" and "admin"; the API, CLI and database call those roles `participant`, `staff`
 and `admin`.
 
-For direct iPhone control over Bluetooth, use the [Motion Log app and integrated ESP32 firmware](mobile/). [中文接线与安装指南](mobile/README.zh-CN.md)
+For direct iPhone control over Bluetooth, use the [Motion Log app and integrated ESP32 firmware](mobile/). [Wiring and setup guide](mobile/setup-guide.md)
 
 ## Layout
 

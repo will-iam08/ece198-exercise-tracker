@@ -1,6 +1,6 @@
 # Motion Log for iPhone and ESP32
 
-Use an iPhone to select a biceps curl, shoulder press or back row, choose a target of 1–99 reps, and start or end a set. The ESP32 counts the selected movement, tracks elapsed time, checks heart rate before and after the set, and sends readings to the phone over Bluetooth Low Energy. The OLED and optional physical button also work with this firmware. [中文安装、接线和操作说明](README.zh-CN.md)
+Use an iPhone to select a biceps curl, shoulder press or back row, choose a target of 1–99 reps, and start or end a set. The ESP32 counts the selected movement, tracks elapsed time, checks heart rate before and after the set, and sends readings to the phone over Bluetooth Low Energy. The OLED and optional physical button also work with this firmware. [Wiring, installation and workout guide](setup-guide.md)
 
 ## Install the matching app and firmware
 
