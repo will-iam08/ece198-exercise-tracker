@@ -124,8 +124,9 @@ strong { font-weight: 650; }
 a { color: var(--pine); text-underline-offset: 3px; }
 a:hover { color: var(--pine-deep); }
 
-.screen-heading:focus { outline: none; }
-.screen-heading:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; border-radius: 4px; }
+/* Headings take focus only so screen readers start at the new screen; they are
+   not controls, so they show no focus ring. */
+.screen-heading:focus, .screen-heading:focus-visible { outline: none; }
 
 :focus-visible {
   outline: 3px solid var(--focus);
