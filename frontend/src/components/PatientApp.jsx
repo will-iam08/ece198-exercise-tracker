@@ -1,110 +1,105 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
-import { TabNav } from './common.jsx';
-import { Onboarding } from './Onboarding.jsx';
-import { DevicesPanel } from './DevicesPanel.jsx';
+import { ErrorMessage, TabNav } from './common.jsx';
+import { PatientDashboard } from './PatientDashboard.jsx';
 import { PatientMessages } from './PatientMessages.jsx';
 import { RepProgress } from './RepProgress.jsx';
 import { SessionHistory } from './SessionHistory.jsx';
-import { SessionScreen } from './SessionScreen.jsx';
 
 const VIEWS = [
-  { id: 'session', label: 'Session', icon: 'pulse' },
+  { id: 'dashboard', label: 'Overview', icon: 'pulse' },
   { id: 'history', label: 'History', icon: 'history' },
   { id: 'progress', label: 'Progress', icon: 'chart' },
   { id: 'messages', label: 'Messages', icon: 'mail' },
-  { id: 'devices', label: 'My devices', icon: 'device' },
 ];
 
 export function PatientApp() {
   const { api } = useAuth();
-  const [view, setView] = useState('session');
-  const [devices, setDevices] = useState(null);
-  const [devicesError, setDevicesError] = useState(null);
-  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  const reloadDevices = useCallback(async () => {
-    try {
-      const data = await api('/api/devices');
-      setDevices(data.devices);
-      setDevicesError(null);
-      // Keep the current choice if it still exists; otherwise pick the first device.
-      setSelectedDeviceId(previous => (data.devices.some(device => device.id === previous) ? previous : data.devices[0]?.id ?? null));
-    } catch (failure) {
-      if (failure.status !== 401) setDevicesError(failure);
-    }
-  }, [api]);
-
-  useEffect(() => { reloadDevices(); }, [reloadDevices]);
-
-  // The care plan from the patient's doctor, checked again whenever a tab is opened.
+  const [view, setView] = useState('dashboard');
   const [plan, setPlan] = useState(null);
   const [planError, setPlanError] = useState(null);
-  const reloadPlan = useCallback(async () => {
-    try {
-      setPlan((await api('/api/plan')).plan);
-      setPlanError(null);
-    } catch (failure) {
-      if (failure.status !== 401) setPlanError(failure);
-    }
-  }, [api]);
-  useEffect(() => { reloadPlan(); }, [reloadPlan, view]);
-
-  const onChanged = useCallback(() => setRefreshKey(key => key + 1), []);
-
-  // How many exercises are complete, for the first-visit checklist. It stays
-  // hidden (null) until this is known, and is not fetched again once done.
-  const [completedExercises, setCompletedExercises] = useState(null);
+  const [planAttempt, setPlanAttempt] = useState(0);
+  const [progress, setProgress] = useState(null);
+  const [progressError, setProgressError] = useState(null);
+  const [recentSessions, setRecentSessions] = useState([]);
+  const [totalSessions, setTotalSessions] = useState(0);
+  const [sessionsError, setSessionsError] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
-  useEffect(() => {
-    if (onboardingDismissed || completedExercises > 0) return undefined;
+
+  const loadPlan = useCallback(() => {
     const controller = new AbortController();
-    api('/api/progress', { query: { kind: 'reps' }, signal: controller.signal })
-      .then(data => setCompletedExercises(data.completed_workouts ?? 0))
-      .catch(() => {});
+    setPlanError(null);
+    api('/api/plan', { signal: controller.signal })
+      .then(data => setPlan(data.plan ?? null))
+      .catch(failure => { if (failure?.name !== 'AbortError' && failure?.status !== 401) setPlanError(failure); });
     return () => controller.abort();
-  }, [api, refreshKey, onboardingDismissed, completedExercises]);
+  }, [api]);
+
+  useEffect(() => loadPlan(), [loadPlan, planAttempt, refreshKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setProgressError(null);
+    api('/api/progress', { query: { kind: 'reps' }, signal: controller.signal })
+      .then(setProgress)
+      .catch(failure => {
+        if (failure?.name !== 'AbortError' && failure?.status !== 401) setProgressError(failure);
+      });
+    return () => controller.abort();
+  }, [api, refreshKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setSessionsError(null);
+    api('/api/sessions', { query: { limit: 5 }, signal: controller.signal })
+      .then(data => {
+        setRecentSessions(data.sessions ?? []);
+        setTotalSessions(data.total ?? 0);
+      })
+      .catch(failure => {
+        if (failure?.name !== 'AbortError' && failure?.status !== 401) setSessionsError(failure);
+      });
+    return () => controller.abort();
+  }, [api, refreshKey]);
+
+  function reloadDashboard() {
+    setRefreshKey(n => n + 1);
+  }
+
+  function changeView(next) {
+    setView(next);
+    if (next === 'dashboard' || next === 'history' || next === 'progress') {
+      setRefreshKey(n => n + 1);
+    }
+  }
 
   return (
     <>
-      <Onboarding
-        deviceCount={devices ? devices.length : null}
-        completedExercises={completedExercises}
-        dismissed={onboardingDismissed}
-        onDismiss={() => setOnboardingDismissed(true)}
-        onGoToDevices={() => setView('devices')}
-        onGoToSession={() => setView('session')}
-      />
-      <TabNav views={VIEWS} current={view} onChange={setView} label="Main sections" />
+      <TabNav views={VIEWS} current={view} onChange={changeView} label="Patient sections" />
       <div className="card">
-        {view === 'session' && (
-          <SessionScreen
-            devices={devices}
-            devicesError={devicesError}
-            reloadDevices={reloadDevices}
-            selectedDeviceId={selectedDeviceId}
-            onSelectDevice={setSelectedDeviceId}
-            onGoToDevices={() => setView('devices')}
-            onChanged={onChanged}
+        {planError && view !== 'dashboard' && <ErrorMessage error={planError} onRetry={() => setPlanAttempt(n => n + 1)} />}
+        {view === 'dashboard' && (
+          <PatientDashboard
             plan={plan}
             planError={planError}
-            reloadPlan={reloadPlan}
+            onRetryPlan={() => setPlanAttempt(n => n + 1)}
+            progress={progress}
+            progressError={progressError}
+            onRetryProgress={reloadDashboard}
+            recentSessions={recentSessions}
+            sessionsError={sessionsError}
+            onRetrySessions={reloadDashboard}
+            totalSessions={totalSessions}
+            completedExercises={progress?.completed_workouts ?? 0}
+            onboardingDismissed={onboardingDismissed}
+            onDismissOnboarding={() => setOnboardingDismissed(true)}
+            onOpenTab={changeView}
           />
         )}
-        {view === 'history' && <SessionHistory devices={devices} refreshKey={refreshKey} plan={plan} />}
+        {view === 'history' && <SessionHistory refreshKey={refreshKey} plan={plan} />}
         {view === 'progress' && <RepProgress refreshKey={refreshKey} />}
         {view === 'messages' && <PatientMessages />}
-        {view === 'devices' && (
-          <DevicesPanel
-            devices={devices}
-            devicesError={devicesError}
-            reloadDevices={reloadDevices}
-            selectedDeviceId={selectedDeviceId}
-            onSelect={setSelectedDeviceId}
-            onGoToSession={() => setView('session')}
-          />
-        )}
       </div>
     </>
   );

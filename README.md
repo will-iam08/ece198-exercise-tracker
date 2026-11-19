@@ -1,19 +1,21 @@
 # MotionTrack
 
-MotionTrack is a rep-counting exercise tracker for a course demo (ECE 198). A patient starts a workout session on
-the website and picks exercises one at a time (Arm Curl, Shoulder Press, Back Row) with a target number of reps.
-An ESP32 with a motion sensor, a pulse sensor and a small OLED takes a heart-rate check-in before the set, counts
-reps up to the target, freezes, then takes a check-in after it, and uploads each step over Wi-Fi. A doctor signs in
-separately and reviews their assigned patients' sessions: target, reps, before and after heart rate, times and status.
-Doctors also set each patient's care plan (notes, target reps, a heart-rate range) and answer questions that patients
-send from the website or by email. An admin creates doctor accounts and assigns patients to doctors.
+MotionTrack is a rep-counting exercise tracker for a course demo (ECE 198). An ESP32 with a motion sensor, pulse sensor
+and small OLED communicates over Bluetooth Low Energy with the **Motion Log** iPhone app (`mobile/`). The patient picks
+an exercise (Biceps curl / Arm Curl, Shoulder press, Back row) and a target of 1 to 50 reps in the app; the tracker
+checks heart rate before and after the set, counts reps, and syncs completed or stopped sets over HTTPS to the website
+dashboard (queuing offline if signal drops). A doctor signs in separately to review assigned patients' synced sets,
+optional live workout streams, care plans (notes, target reps, heart-rate range), and messages. An admin creates doctor
+accounts and assigns patients to doctors.
 An exercise is **Complete** only when every rep was counted and both heart-rate readings exist; otherwise it is
-**Incomplete**. Retried uploads are never counted twice.
+**Incomplete**. Retried uploads from the phone are idempotent (`client_id`) and never counted twice.
 
 The website says "patient", "doctor" and "admin"; the API, CLI and database call those roles `participant`, `staff`
 and `admin`.
 
-For direct iPhone control over Bluetooth, use the [Motion Log app and integrated ESP32 firmware](mobile/). [Wiring and setup guide](mobile/setup-guide.md)
+Note on legacy Wi-Fi firmware: direct ESP32-to-server Wi-Fi device tokens and `firmware/` are kept in the repository
+for backward compatibility and preserving historical device records, while the patient website now acts as a synced
+dashboard for Motion Log (`mobile/`). [Mobile wiring and setup guide](mobile/setup-guide.md)
 
 ## Layout
 

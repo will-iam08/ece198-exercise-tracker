@@ -9,12 +9,16 @@
 /* Begin PBXBuildFile section */
 		000000000000000000000008 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* App.swift */; };
 		00000000000000000000000A /* Tracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000009 /* Tracker.swift */; };
+		000000000000000000000013 /* SyncCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000012 /* SyncCore.swift */; };
+		000000000000000000000015 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000014 /* CloudSync.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		000000000000000000000007 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		000000000000000000000009 /* Tracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tracker.swift; sourceTree = "<group>"; };
 		00000000000000000000000C /* MotionLog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = MotionLog.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000012 /* SyncCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCore.swift; sourceTree = "<group>"; };
+		000000000000000000000014 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -23,6 +27,8 @@
 			children = (
 				000000000000000000000007 /* App.swift */,
 				000000000000000000000009 /* Tracker.swift */,
+				000000000000000000000012 /* SyncCore.swift */,
+				000000000000000000000014 /* CloudSync.swift */,
 			);
 			path = MotionLog;
 			sourceTree = "<group>";
@@ -96,6 +102,8 @@
 			files = (
 				000000000000000000000008 /* App.swift in Sources */,
 				00000000000000000000000A /* Tracker.swift in Sources */,
+				000000000000000000000013 /* SyncCore.swift in Sources */,
+				000000000000000000000015 /* CloudSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

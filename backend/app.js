@@ -7,6 +7,7 @@ import { EXERCISES } from './exercises.js';
 import { registerSessionRoutes } from './sessions.js';
 import { registerAdminRoutes } from './admin.js';
 import { registerPlanRoutes } from './plans.js';
+import { registerAppSyncRoutes } from './appSync.js';
 import { registerMessageRoutes } from './messages.js';
 import { registerBotRoutes } from './emailBot.js';
 import { DEFAULT_CORS_ORIGINS, parseCorsOrigins } from './config.js';
@@ -28,7 +29,7 @@ const wrongPortal = {
 // corsOrigin: one origin, a comma-separated list, or an array of origins.
 // bot: { webhookSecret, address } for the email bot (both optional).
 // staticDir: optional directory of a built frontend (serves SPA routes when present).
-export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, staticDir = null }) {
+export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, staticDir = null, appSync = {} }) {
   const allowedOrigins = new Set(parseCorsOrigins(corsOrigin));
   const app = express();
   app.disable('x-powered-by');
@@ -341,6 +342,7 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
 
   const shared = { db, transaction, userAuth, participant, staff, admin, staffOrAdmin, assigned, canView, assignedParticipant };
   registerSessionRoutes(app, shared);
+  registerAppSyncRoutes(app, shared, appSync);
   registerAdminRoutes(app, shared);
   registerPlanRoutes(app, shared);
   registerMessageRoutes(app, { ...shared, botAddress: bot.address || null });

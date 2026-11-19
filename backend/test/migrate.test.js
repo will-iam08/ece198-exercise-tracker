@@ -53,8 +53,8 @@ test('migrates a version-1 database without losing data', async t => {
   const db = createDatabase(path);
   t.after(() => db.close());
 
-  assert.equal(version(db), 3);
-  assert.equal(LATEST_VERSION, 3);
+  assert.equal(version(db), LATEST_VERSION);
+  assert.equal(LATEST_VERSION, 4);
   assert.equal(count(db, 'users'), 2);
   assert.equal(count(db, 'workouts'), 3);
   assert.equal(count(db, 'workout_readings'), 5);
@@ -162,7 +162,7 @@ test('version 3 upgrades a version-2 database, keeps every row and adds the admi
   const db = createDatabase(path);
   t.after(() => db.close());
 
-  assert.equal(version(db), 3);
+  assert.equal(version(db), LATEST_VERSION);
   assert.deepEqual(db.prepare('SELECT id, role FROM users ORDER BY id').all().map(row => ({ ...row })),
     [{ id: 'p1', role: 'participant' }, { id: 's1', role: 'staff' }]);
   assert.equal(count(db, 'staff_participants'), 1);
@@ -236,4 +236,55 @@ test('care plan and message constraints', () => {
   } finally {
     db.close();
   }
+});
+
+test('version 4 upgrades a version-3 database, keeps every row and supports app sets without devices', async t => {
+  const path = await tempPath(t);
+  await seedVersion2(path);
+  const v3 = new DatabaseSync(path);
+  v3.exec('PRAGMA foreign_keys = ON;');
+  migrate(v3, 3);
+  assert.equal(version(v3), 3);
+  v3.prepare(`INSERT INTO patient_plans (participant_id, staff_id, notes, arm_curl_reps, updated_at)
+    VALUES ('p1', 's1', 'Keep steady', 10, ?)`).run(now);
+  v3.close();
+
+  const db = createDatabase(path);
+  t.after(() => db.close());
+
+  assert.equal(version(db), 4);
+  assert.equal(count(db, 'exercise_sessions'), 1);
+  assert.equal(count(db, 'workouts'), 4);
+  assert.equal(count(db, 'workout_readings'), 5);
+  assert.equal(count(db, 'workout_events'), 1);
+  assert.equal(count(db, 'patient_plans'), 1);
+  assert.equal(db.prepare("SELECT source, device_id FROM exercise_sessions WHERE id = 'es1'").get().source, 'device');
+  assert.equal(db.prepare("SELECT source, client_id FROM workouts WHERE id = 'r1'").get().source, 'device');
+  assert.equal(db.prepare("SELECT source, client_id FROM workouts WHERE id = 'r1'").get().client_id, null);
+
+  // App sessions and workouts need no device row, while device rows still require a valid device_id.
+  db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, ended_at, updated_at) VALUES ('app-s1', 'p1', NULL, 'app', 'ended', ?, ?, ?)")
+    .run(now, now, now);
+  db.prepare(`INSERT INTO workouts (id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
+    target_reps, phase, status, repetitions, elapsed_seconds, created_at, updated_at)
+    VALUES ('app-w1', 'p1', NULL, 'app', 'uuid-1', 'Arm Curl', 'reps', 'app-s1', 'arm_curl', 10, 'done', 'completed', 10, 25, ?, ?)`)
+    .run(now, now);
+  assert.throws(() => db.prepare(`INSERT INTO workouts (id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
+    target_reps, phase, status, repetitions, elapsed_seconds, created_at, updated_at)
+    VALUES ('app-w2', 'p1', NULL, 'app', 'uuid-1', 'Arm Curl', 'reps', 'app-s1', 'arm_curl', 10, 'done', 'completed', 10, 25, ?, ?)`)
+    .run(now, now), /UNIQUE constraint/i);
+  assert.throws(() => db.prepare(`INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, updated_at)
+    VALUES ('bad-s', 'p1', NULL, 'device', 'ended', ?, ?)`).run(now, now), /CHECK constraint/i);
+  assert.throws(() => db.prepare(`INSERT INTO workouts (id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
+    target_reps, phase, status, created_at, updated_at)
+    VALUES ('bad-d', 'p1', 'missing-device', 'app', NULL, 'Arm Curl', 'reps', 'app-s1', 'arm_curl', 10, 'done', 'completed', ?, ?)`)
+    .run(now, now), /FOREIGN KEY constraint/i);
+
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+
+  db.prepare("DELETE FROM users WHERE id = 'p1'").run();
+  assert.equal(count(db, 'exercise_sessions'), 0);
+  assert.equal(count(db, 'workouts'), 0);
+  assert.equal(count(db, 'workout_events'), 0);
 });

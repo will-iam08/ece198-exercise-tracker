@@ -44,16 +44,20 @@ private func demoReading(seconds: Int, phase: Reading.Phase) -> Reading {
 
 struct Dashboard: View {
     @StateObject private var tracker = Tracker()
+    @StateObject private var cloudSync = CloudSync()
     @State private var demo = true
     @State private var exerciseCode: UInt8 = 1
     @State private var target = 10
     @State private var started: Date?
     @State private var finalDemo: Reading?
+    @State private var showingAccount = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    syncCard
+
                     Picker("Data source", selection: Binding(get: { demo }, set: selectSource)) {
                         Text("Demo").tag(true)
                         Text("My tracker").tag(false)
@@ -80,13 +84,40 @@ struct Dashboard: View {
                             }
                         }
                     } else {
+                        if let plan = cloudSync.carePlan {
+                            carePlanCard(plan)
+                        }
                         connection
                     }
                 }.padding(.horizontal, 20).padding(.vertical, 12)
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Motion Log")
+            .sheet(isPresented: $showingAccount) {
+                AccountSheet(cloudSync: cloudSync)
+            }
+            .onReceive(tracker.$reading) { reading in
+                if !demo {
+                    cloudSync.handleReading(reading)
+                }
+            }
+            .onReceive(cloudSync.$carePlan) { plan in
+                applyPrescribedTarget(from: plan, for: exerciseCode)
+            }
+            .onChange(of: exerciseCode) { nextCode in
+                applyPrescribedTarget(from: cloudSync.carePlan, for: nextCode)
+            }
         }
+    }
+
+    private func applyPrescribedTarget(from plan: CarePlan?, for code: UInt8) {
+        let canEdit = tracker.reading?.stage?.canStart ?? true
+        guard canEdit,
+              let exercise = AppExercise(wireCode: code),
+              let prescribed = plan?.prescribedReps(for: exercise) else {
+            return
+        }
+        target = prescribed
     }
 
     private func elapsed(since start: Date, at end: Date) -> Int {
@@ -98,7 +129,82 @@ struct Dashboard: View {
         demo = usingDemo
         started = nil
         finalDemo = nil
-        if usingDemo { tracker.disconnect() }
+        if usingDemo {
+            cloudSync.clearLivePreview()
+            cloudSync.resetTracking()
+            tracker.disconnect()
+        }
+    }
+
+    private var syncCard: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: cloudSync.session != nil && !cloudSync.sessionExpired ? "icloud.and.arrow.up" : "person.crop.circle")
+                .font(.title3)
+                .foregroundStyle(forest)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(cloudSync.syncStatusMessage)
+                    .font(.subheadline.weight(.semibold))
+                if let user = cloudSync.session?.user {
+                    Text(user.email)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if cloudSync.pendingCount > 0, cloudSync.session != nil, !cloudSync.sessionExpired, !cloudSync.isSyncing {
+                Button("Retry") {
+                    Task { await cloudSync.flushNow() }
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+            Button(cloudSync.session == nil ? "Sign in" : (cloudSync.sessionExpired ? "Sign in again" : "Account")) {
+                showingAccount = true
+            }
+            .buttonStyle(.bordered)
+            .tint(forest)
+        }
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func carePlanCard(_ plan: CarePlan) -> some View {
+        let goals = [
+            plan.armCurlReps.map { "Biceps curl: \($0) reps" },
+            plan.shoulderPressReps.map { "Shoulder press: \($0) reps" },
+            plan.backRowReps.map { "Back row: \($0) reps" },
+        ].compactMap { $0 }
+        return Group {
+            if !goals.isEmpty || plan.targetBpmMin != nil || plan.targetBpmMax != nil || !plan.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("From your doctor", systemImage: "list.clipboard")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(forest)
+                    if let doctor = plan.doctorName {
+                        Text("Prescribed by \(doctor)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !goals.isEmpty {
+                        Text(goals.joined(separator: " · "))
+                            .font(.subheadline)
+                    }
+                    if plan.targetBpmMin != nil || plan.targetBpmMax != nil {
+                        let minText = plan.targetBpmMin.map(String.init) ?? "—"
+                        let maxText = plan.targetBpmMax.map(String.init) ?? "—"
+                        Text("Target heart rate after exercise: \(minText)–\(maxText) bpm")
+                            .font(.subheadline)
+                    }
+                    if !plan.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(plan.notes)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
     }
 
     private var connection: some View {
@@ -123,15 +229,19 @@ struct Dashboard: View {
                             Text("Shoulder press").tag(UInt8(3))
                             Text("Back row").tag(UInt8(4))
                         }.pickerStyle(.menu)
-                        Stepper("Target: \(target) reps", value: $target, in: 1...99)
+                        Stepper("Target: \(target) reps", value: $target, in: 1...50)
                         action("Start workout", icon: "play.fill") {
+                            cloudSync.markWorkoutStarted()
                             tracker.send(1, movement: exerciseCode, target: UInt8(target))
                         }
                     } else if stage.active {
                         if stage == .before || stage == .after {
                             Text(((tracker.reading?.flags ?? 0) & 2) != 0 ? "Pulse sensor offline. You can skip this reading." :
                                 "Place a fingertip on the heart sensor and hold still.")
-                            Button("Skip heart-rate check") { tracker.send(3) }
+                            Button("Skip heart-rate check") {
+                                cloudSync.markSkipTapped(stage: stage)
+                                tracker.send(3)
+                            }
                         }
                         action("End workout", icon: "stop.fill") { tracker.send(2) }
                     } else {
@@ -143,7 +253,11 @@ struct Dashboard: View {
                 Text("Install the MotionTrack firmware to control workouts from this phone.")
             }
             if tracker.busy || tracker.connected {
-                action(tracker.connected ? "Disconnect" : "Cancel", icon: "xmark") { tracker.disconnect() }
+                action(tracker.connected ? "Disconnect" : "Cancel", icon: "xmark") {
+                    cloudSync.clearLivePreview()
+                    cloudSync.resetTracking()
+                    tracker.disconnect()
+                }
             } else {
                 action("Scan for tracker", icon: "magnifyingglass") { tracker.scan() }
             }
@@ -155,6 +269,104 @@ struct Dashboard: View {
             Label(label, systemImage: icon).font(.headline).frame(maxWidth: .infinity)
                 .padding(.vertical, 16).foregroundStyle(forest)
                 .background(lime, in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+}
+
+private struct AccountSheet: View {
+    @ObservedObject var cloudSync: CloudSync
+    @Environment(\.dismiss) private var dismiss
+    @State private var serverURL = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var busy = false
+    @State private var errorMessage = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let session = cloudSync.session, !cloudSync.sessionExpired {
+                    Section("Signed in") {
+                        LabeledContent("Patient", value: session.user.name)
+                        LabeledContent("Email", value: session.user.email)
+                        LabeledContent("Server", value: session.serverURL)
+                        LabeledContent("Queue", value: cloudSync.syncStatusMessage)
+                    }
+                    Section {
+                        Button("Refresh care plan & sync") {
+                            Task {
+                                await cloudSync.refreshCarePlan()
+                                await cloudSync.flushNow()
+                            }
+                        }
+                        Button("Sign out", role: .destructive) {
+                            Task {
+                                await cloudSync.signOut()
+                                dismiss()
+                            }
+                        }
+                    }
+                } else {
+                    Section(cloudSync.sessionExpired ? "Session expired — sign in again" : "MotionTrack account") {
+                        TextField("Server URL (e.g. https://motiontrack.onrender.com)", text: $serverURL)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("Patient email", text: $email)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Password", text: $password)
+                            .textContentType(.password)
+                    }
+                    if !errorMessage.isEmpty {
+                        Section {
+                            Text(errorMessage).foregroundStyle(.red)
+                        }
+                    }
+                    Section {
+                        Button(busy ? "Signing in…" : "Sign in") {
+                            submitSignIn()
+                        }
+                        .disabled(busy || serverURL.isEmpty || email.isEmpty || password.isEmpty)
+                    } footer: {
+                        Text("Your token is stored securely in the iOS Keychain for 24 hours. Workouts recorded over Bluetooth still save locally if you are offline or signed out.")
+                    }
+                    if cloudSync.session != nil {
+                        Section {
+                            Button("Clear expired account", role: .destructive) {
+                                Task { await cloudSync.signOut() }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Account")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .onAppear {
+                if serverURL.isEmpty { serverURL = cloudSync.savedServerURL }
+                if email.isEmpty { email = cloudSync.savedEmail }
+            }
+        }
+    }
+
+    private func submitSignIn() {
+        busy = true
+        errorMessage = ""
+        Task {
+            do {
+                try await cloudSync.signIn(serverURL: serverURL, email: email, password: password)
+                password = ""
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            busy = false
         }
     }
 }

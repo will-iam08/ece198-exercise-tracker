@@ -1,10 +1,12 @@
 # MotionTrack backend
 
-Local Node.js 24 + Express 5 + SQLite backend for MotionTrack. A patient starts an exercise **session** on the
-website and picks exercises one at a time (Arm Curl, Shoulder Press, Back Row) with a target number of reps.
-The ESP32 takes a heart-rate (BPM) check-in before the set, counts reps up to the target, then takes a check-in
-after it, and uploads each step over Wi-Fi. An assigned doctor reviews the patient's sessions, sets a care plan and
-answers the patient's questions; an admin manages doctor accounts and assignments.
+Local Node.js 24 + Express 5 + SQLite backend for MotionTrack. Patients record workouts on the ESP32 over Bluetooth
+using the **Motion Log** iPhone app (`mobile/`) and sync completed or stopped sets over HTTPS to this server.
+Supported exercises are Arm Curl (wire code `1`, `arm_curl`), Shoulder Press (wire code `3`, `shoulder_press`) and
+Back Row (wire code `4`, `back_row`) with a target of `1–50` reps (wire code `2` / Lateral raise is unused and rejected).
+Legacy direct Wi-Fi ESP32 routes (`/api/device/*`, `/api/devices`) remain active for backward compatibility and
+preserving existing data while the patient website now acts as a synced dashboard. An assigned doctor reviews the
+patient's sessions, sets a care plan and answers questions; an admin manages doctor accounts and assignments.
 
 The website says "patient", "doctor" and "admin". In the API, CLI and database those accounts have the roles
 `participant`, `staff` and `admin`; this document uses the API names where it describes routes and fields.
@@ -193,6 +195,26 @@ Before MotionTrack the API recorded fixed-duration workouts. Those routes remain
 old tests stay valid; the website no longer offers them (it only lists old workouts and lets a patient cancel one that
 is still open, because an open workout blocks the device).
 
+### Motion Log iPhone app sync (participant)
+
+Authenticated with a patient bearer token (`Authorization: Bearer <token>` from `POST /api/auth/login` with
+`"portal": "patient"`):
+
+| Method and route | Access | Request | Response |
+| --- | --- | --- | --- |
+| `POST /api/app/sets` | Participant | `{"client_id","exercise","target_reps","repetitions","elapsed_seconds","before_bpm","after_bpm","before_skipped","after_skipped","started_at","ended_at"}` | `201` on new insert or finalizing an open live preview; `200 {"workout":W,"session":S,"duplicate":true}` when re-sent identically; `409` if `client_id` is reused with different values. |
+| `PUT /api/app/live` | Participant | `{"client_id","exercise","target_reps","repetitions","elapsed_seconds","phase"}` plus optional `"before_bpm"`, `"before_skipped"`, `"device_status"` | `200 {"workout":W,"session":S,"server_time"}`. Rate-limited per user (`429` with `Retry-After`). Updates `device_seen_at` for `"last update N s ago"`. Returns `409` if an active Wi-Fi session is open or the `client_id` already finished. |
+| `DELETE /api/app/live` | Participant | none | `204`. Discards any unfinalized app live preview cleanly. |
+
+Validation and completeness rules for `POST /api/app/sets`:
+
+- `client_id` must be a valid UUID string; stored per `(participant_id, client_id)`.
+- `exercise` accepts integer wire codes `1`, `3`, `4` or IDs `arm_curl`, `shoulder_press`, `back_row` (wire code `2` and all other values return `400`).
+- `target_reps` is standardized at `1–50`; `repetitions` is `0–50` (`<= target_reps`); `elapsed_seconds` is `0–86400`.
+- `before_bpm` and `after_bpm` accept `null` or `1–300` (never `0`). When `before_skipped` or `after_skipped` is `true`, the corresponding BPM must be `null`.
+- Status is `completed` **only** when `repetitions == target_reps` and both `before_bpm` and `after_bpm` are non-null; otherwise `incomplete`.
+- Care plan targets and heart-rate bounds are fetched by the app via `GET /api/plan`.
+
 | Method and route | Notes |
 | --- | --- |
 | `POST /api/workouts` | Participant. `{"device_id","exercise_name","target_duration_seconds"}` (1-86400) creates a `kind:"timed"` workout (`pending`). 409 if the device already has an unfinished workout. |
@@ -267,12 +289,12 @@ resends the same bytes until it receives a 2xx or a 409.
 ## 3) Database schema and migration
 
 SQLite file, `STRICT` tables, foreign keys on. Source: [`schema.sql`](./schema.sql) (version 1 base, run on every
-start with `IF NOT EXISTS`) and [`migrations.js`](./migrations.js) (versions 2 and 3).
+start with `IF NOT EXISTS`) and [`migrations.js`](./migrations.js) (versions 2, 3 and 4).
 
-**Versioning.** The database's `PRAGMA user_version` records the schema version (now 3). A new database gets the base
-schema and is then migrated to 3. An existing database with `user_version` 0 that already has a `users` table is
+**Versioning.** The database's `PRAGMA user_version` records the schema version (now 4). A new database gets the base
+schema and is then migrated through versions 2, 3 and 4. An existing database with `user_version` 0 that already has a `users` table is
 treated as version 1. Migrations run at startup in one transaction with `PRAGMA foreign_keys = OFF` around it (so
-rebuilding `workouts` does not cascade-delete `workout_readings`), then `PRAGMA foreign_key_check`, and roll back
+rebuilding tables does not cascade-delete child rows), then `PRAGMA foreign_key_check`, and roll back
 completely if anything fails.
 
 **What version 2 does.** It creates `exercise_sessions` and `workout_events`, and rebuilds `workouts` with new
@@ -282,13 +304,18 @@ columns by copying every row. Every existing workout is kept with `kind='timed'`
 **What version 3 does.** It rebuilds `users` so `role` may also be `admin`, copying every row with the same ids (all
 foreign keys to `users(id)` keep pointing at the same people), and creates `patient_plans` and `patient_messages`.
 
+**What version 4 does.** It rebuilds `exercise_sessions` and `workouts` (preserving every existing row) so
+`device_id` is nullable for app-synced workouts, adds `source` (`'device'` or `'app'`, existing rows default to
+`'device'`), adds `client_id TEXT` on `workouts` with unique partial index `idx_workouts_participant_client` on
+`(participant_id, client_id) WHERE client_id IS NOT NULL`, and scopes `idx_workouts_device_open` to `WHERE device_id IS NOT NULL AND status IN ('pending', 'active')`.
+
 | Table | Purpose |
 | --- | --- |
 | `users` | Accounts; `role` is `participant`, `staff` or `admin`. Passwords are scrypt hashes. |
 | `auth_sessions` | Hashed user tokens with expiry. (Not exercise sessions.) |
 | `staff_participants` | Doctor-to-patient assignments (many to many). |
 | `devices` | One row per ESP32 per participant; only a SHA-256 hash of the device token; `revoked_at` keeps history. |
-| `exercise_sessions` | `id`, `participant_id`, `device_id`, `status` (`active`/`ended`), `created_at`, `ended_at`, `updated_at`. A partial unique index allows one `active` session per participant. |
+| `exercise_sessions` | `id`, `participant_id`, nullable `device_id`, `source` (`device`/`app`), `status` (`active`/`ended`), `created_at`, `ended_at`, `updated_at`. A partial unique index allows one `active` session per participant. |
 | `workouts` | One row per exercise (and per legacy timed workout). Columns below. |
 | `workout_events` | Upload log for rep exercises: `workout_id`, `sequence`, `type` (`status`/`before_bpm`/`progress`/`after_bpm`), `repetitions`, `bpm`, `capture_status`, `received_at`; primary key (`workout_id`, `sequence`), which enforces the duplicate rule. |
 | `workout_readings` | Legacy per-upload log for timed workouts. |
@@ -301,8 +328,9 @@ version 2 additions `kind` (`timed`/`reps`), `target_duration_seconds` (now null
 `target_reps` (1-50), `phase`, `before_bpm`, `before_bpm_at`, `after_bpm`, `after_bpm_at`, `before_skipped`,
 `after_skipped`, `device_status`, `device_seen_at`. `status` allows `pending`, `active`, `completed`,
 `cancelled` (legacy) and `incomplete`. A CHECK requires timed rows to have a duration and rep rows to have a session,
-an exercise, a target and a phase. The partial unique index on `device_id` allows one pending/active workout per
-device. No raw sensor data is stored, and no API deletes accounts or workouts.
+an exercise, a target and a phase. the partial unique index on `device_id` (`WHERE device_id IS NOT NULL AND status IN ('pending', 'active')`) allows one pending/active workout per
+device, and `idx_workouts_participant_client` enforces unique `(participant_id, client_id)` for idempotent app uploads.
+No raw sensor data is stored, and no API deletes accounts or workouts.
 
 ## 4) Setup
 

@@ -2,10 +2,10 @@
 
 React + Vite frontend for the [MotionTrack backend](../backend/README.md). It has three entry points:
 
-- **Patient:** `http://localhost:5173/` — register or sign in, add an ESP32 device, start a workout session, pick
-  exercises one at a time (exercise and target reps), watch live reps and heart-rate check-ins, skip a reading,
-  stop an exercise, end the session, review History and Progress, see the doctor's care plan, and ask the doctor
-  questions on the Messages tab.
+- **Patient:** `http://localhost:5173/` — register or sign in, view the **Overview** dashboard fed by the Motion Log
+  iPhone app (setup instructions with copyable server URL, doctor's care plan, synced totals, recent sets and optional
+  live stream during active app workouts), browse **History** (CSV export and print), inspect **Progress** charts, and
+  ask the doctor questions on the **Messages** tab. (Legacy **My devices** and Wi-Fi device tokens are retired from the UI.)
 - **Doctor:** `http://localhost:5173/doctor` — sign in with a doctor account, read and answer questions in the
   Patient Message Inbox, see assigned patients (with a "Live now" badge), open each patient's sessions and
   exercises (read-only), and set each patient's care plan.

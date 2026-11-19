@@ -53,7 +53,9 @@ function LiveSession({ sessionId, patientName, plan }) {
               {stale && (
                 <p className="alert alert-warning stale-callout">
                   <span aria-hidden="true">⚠ </span><strong>{notRespondingText(openWorkout, serverTime)}.</strong>{' '}
-                  {patientName} may need to check that the device is switched on and connected to Wi-Fi.
+                  {openWorkout.source === 'app'
+                    ? `${patientName}'s Motion Log app has not sent an update recently. Finished sets sync automatically once the phone is back online.`
+                    : `${patientName} may need to check that the device is switched on and connected to Wi-Fi.`}
                 </p>
               )}
             </>

@@ -1,24 +1,45 @@
-// First-run checklist for a new patient.
-
-export function onboardingSteps({ hasAccount = true, deviceCount, completedExercises } = {}) {
+// Steps shown on the patient Overview until all three are done or dismissed.
+// Progress is stored on the server, never in browser storage.
+export function onboardingSteps({ hasAccount = true, syncedSets = 0, completedExercises = 0 } = {}) {
+  const synced = Number.isFinite(syncedSets) && syncedSets > 0;
+  const exercised = Number.isFinite(completedExercises) && completedExercises > 0;
   return [
-    { id: 'account', label: 'Account ready', done: Boolean(hasAccount) },
-    { id: 'device', label: 'Add your exercise device', done: Number(deviceCount) > 0 },
-    { id: 'exercise', label: 'Complete your first exercise', done: Number(completedExercises) > 0 },
+    {
+      id: 'account',
+      title: 'Create your account',
+      done: Boolean(hasAccount),
+      detail: 'Your web dashboard and patient record are ready.',
+    },
+    {
+      id: 'app',
+      title: 'Sign in on the Motion Log app',
+      done: synced,
+      detail: 'Connect your tracker over Bluetooth on your iPhone and upload your first set.',
+    },
+    {
+      id: 'exercise',
+      title: 'Finish your first complete exercise',
+      done: exercised,
+      detail: 'Reach all target reps with heart rate measured before and after.',
+    },
   ];
 }
 
 export function onboardingProgress(steps) {
-  const items = Array.isArray(steps) ? steps : [];
-  const done = items.filter(step => step.done).length;
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return { done: 0, total: 0, complete: true, nextStepId: null };
+  }
+  const done = steps.filter(step => Boolean(step.done)).length;
+  const next = steps.find(step => !step.done) ?? null;
   return {
     done,
-    total: items.length,
-    complete: done === items.length,
-    nextStepId: items.find(step => !step.done)?.id ?? null,
+    total: steps.length,
+    complete: done === steps.length,
+    nextStepId: next ? next.id : null,
   };
 }
 
-export function shouldShowOnboarding({ steps, dismissed } = {}) {
-  return !dismissed && !onboardingProgress(steps).complete;
+export function shouldShowOnboarding({ steps, dismissed = false } = {}) {
+  if (dismissed || !Array.isArray(steps) || steps.length === 0) return false;
+  return steps.some(step => !step.done);
 }

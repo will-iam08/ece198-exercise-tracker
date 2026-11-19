@@ -7,12 +7,12 @@ const PORTALS = {
   patient: {
     eyebrow: 'Patient portal',
     title: 'Your home exercise log',
-    lead: 'Start a session, follow your doctor’s rep and heart-rate targets, and keep a record of every set you finish.',
+    lead: 'Review sets synced from the Motion Log iPhone app, follow your doctor’s rep and heart-rate targets, and track your progress.',
     heading: 'Sign in',
     intro: 'Patients sign in here with their email and password.',
     features: [
       { icon: 'heart', title: 'Heart rate before and after', text: 'Take a reading before your first rep and another straight after your last.' },
-      { icon: 'target', title: 'Automatic rep counting', text: 'Your arm sensor counts each rep and stops when you reach your target.' },
+      { icon: 'device', title: 'Synced from the Motion Log app', text: 'Connect your tracker over Bluetooth in Motion Log, and finished sets upload here automatically.' },
       { icon: 'clipboard', title: 'Shared with your doctor', text: 'Your completed sets, care plan and questions stay in one place for your doctor to review.' },
     ],
   },
