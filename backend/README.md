@@ -291,11 +291,10 @@ resends the same bytes until it receives a 2xx or a 409.
 SQLite file, `STRICT` tables, foreign keys on. Source: [`schema.sql`](./schema.sql) (version 1 base, run on every
 start with `IF NOT EXISTS`) and [`migrations.js`](./migrations.js) (versions 2, 3 and 4).
 
-**Versioning.** The database's `PRAGMA user_version` records the schema version (now 4). A new database gets the base
-schema and is then migrated through versions 2, 3 and 4. An existing database with `user_version` 0 that already has a `users` table is
-treated as version 1. Migrations run at startup in one transaction with `PRAGMA foreign_keys = OFF` around it (so
-rebuilding tables does not cascade-delete child rows), then `PRAGMA foreign_key_check`, and roll back
-completely if anything fails.
+**Versioning.** Schema versions are recorded in the `schema_migrations` table (and also `PRAGMA user_version` when
+running on local SQLite, now version 4; `PRAGMA user_version` is left untouched on remote Turso databases). A new
+local database initializes straight to v4 (or runs v2 → v3 → v4 incrementally on existing v1–v3 files). Migrations run
+in a transaction, check foreign keys, and roll back completely if anything fails.
 
 **What version 2 does.** It creates `exercise_sessions` and `workout_events`, and rebuilds `workouts` with new
 columns by copying every row. Every existing workout is kept with `kind='timed'`; its readings in
@@ -370,7 +369,8 @@ stand-in mailbox).
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` so an ESP32 (or a mail service) on the same network can reach it. Phones and laptops use the website, which forwards `/api`, so they do not need this. |
 | `PORT` | `3000` | TCP port, 1-65535. |
-| `DATABASE_PATH` | `./data/ece198.sqlite` | SQLite file, relative to the working directory. Use the same value for the server and the CLI. |
+| `DATABASE_PATH` | `./data/ece198.sqlite` | Local SQLite file when `TURSO_DATABASE_URL` is unset. Use the same value for the server and the CLI. |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | none | Optional Turso (libSQL) URL (`libsql://…` or `https://…`) and token. Enables persistent hosted storage on Render's free tier; omit both locally to keep using `DATABASE_PATH`. |
 | `CORS_ORIGIN` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated list of exact browser origins, each without a path or trailing slash. Other browser origins get 403. Requests with no `Origin` header (ESP32, curl, the website's dev-server proxy for its own address) are unaffected. |
 | `STAFF_PASSWORD` | none | Used by `create-staff`, and by `create-admin` when `ADMIN_PASSWORD` is not set (12-128 characters). Do not store it in `.env`. |
 | `ADMIN_PASSWORD` | none | Used by `create-admin` (12-128 characters). Do not store it in `.env`. |
@@ -439,7 +439,9 @@ unset DEMO_ADMIN_PASSWORD DEMO_DOCTOR_PASSWORD DEMO_PATIENT_PASSWORD
 
 `../render.yaml` runs the seed before each start and declares the three variables with `generateValue: true`, so
 Render creates a random value for each one that does not exist yet (on the first Blueprint deploy and on later
-Blueprint syncs). To sign in as a demo user, open the service in the Render Dashboard, go to **Environment**, and
+Blueprint syncs). `../render.yaml` also declares optional `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` (`sync: false`):
+set both in Render **Environment** to persist data across free-tier deploys and restarts, or leave them unset to fall
+back to local SQLite. To sign in as a demo user, open the service in the Render Dashboard, go to **Environment**, and
 reveal the value of the variable for that role. To use your own value instead, edit it there and redeploy; this
 only affects accounts that do not exist yet.
 

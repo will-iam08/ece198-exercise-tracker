@@ -28,7 +28,7 @@ export async function runManage(args, {
     const admin = command === 'create-admin';
     const name = second.trim();
     if (name.length < 1 || name.length > 80) throw new Error('Name must contain 1 to 80 characters.');
-    if (db.prepare('SELECT id FROM users WHERE email = ?').get(firstEmail)) {
+    if (await db.get('SELECT id FROM users WHERE email = ?', firstEmail)) {
       throw new Error('An account with this email already exists; this command cannot change its role.');
     }
     const chosen = admin ? (adminPassword || password) : password;
@@ -41,23 +41,23 @@ export async function runManage(args, {
       id: randomUUID(), name, email: firstEmail, role: admin ? 'admin' : 'staff', created_at: new Date().toISOString()
     };
     const passwordHash = await hashPassword(chosen);
-    db.prepare('INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(user.id, user.name, user.email, passwordHash, user.role, user.created_at);
+    await db.run('INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      user.id, user.name, user.email, passwordHash, user.role, user.created_at);
     return { user: publicUser(user) };
   }
   const participantEmail = email(second);
-  const staff = db.prepare('SELECT id, role FROM users WHERE email = ?').get(firstEmail);
-  const participant = db.prepare('SELECT id, role FROM users WHERE email = ?').get(participantEmail);
+  const staff = await db.get('SELECT id, role FROM users WHERE email = ?', firstEmail);
+  const participant = await db.get('SELECT id, role FROM users WHERE email = ?', participantEmail);
   if (!staff || staff.role !== 'staff') throw new Error('The staff email must belong to an existing staff account.');
   if (!participant || participant.role !== 'participant') {
     throw new Error('The participant email must belong to an existing participant account.');
   }
   if (command === 'assign') {
-    db.prepare('INSERT INTO staff_participants (staff_id, participant_id) VALUES (?, ?) ON CONFLICT DO NOTHING')
-      .run(staff.id, participant.id);
+    await db.run('INSERT INTO staff_participants (staff_id, participant_id) VALUES (?, ?) ON CONFLICT DO NOTHING',
+      staff.id, participant.id);
   } else {
-    db.prepare('DELETE FROM staff_participants WHERE staff_id = ? AND participant_id = ?')
-      .run(staff.id, participant.id);
+    await db.run('DELETE FROM staff_participants WHERE staff_id = ? AND participant_id = ?',
+      staff.id, participant.id);
   }
   return { staff_id: staff.id, participant_id: participant.id, assigned: command === 'assign' };
 }
@@ -65,12 +65,12 @@ export async function runManage(args, {
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   let db;
   try {
-    db = createDatabase();
+    db = await createDatabase();
     console.log(JSON.stringify(await runManage(process.argv.slice(2), { db }), null, 2));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
   } finally {
-    db?.close();
+    await db?.close();
   }
 }

@@ -58,17 +58,7 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
   app.use('/api/bot/inbound-email', express.json({ limit: '1mb' }));
   app.use(express.json({ limit: '16kb' }));
 
-  function transaction(fn) {
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const result = fn();
-      db.exec('COMMIT');
-      return result;
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
-  }
+  const transaction = fn => db.transaction(fn);
 
   function bearer(req) {
     const match = /^Bearer ([A-Za-z0-9_-]{20,100})$/.exec(req.headers.authorization || '');
@@ -76,12 +66,12 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
     return hashToken(match[1]);
   }
 
-  function userAuth(req, res, next) {
+  async function userAuth(req, res, next) {
     req.tokenHash = bearer(req);
-    req.user = db.prepare(`SELECT u.* FROM auth_sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.token_hash = ? AND s.expires_at > ?`).get(req.tokenHash, new Date().toISOString());
+    req.user = await db.get(`SELECT u.* FROM auth_sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = ? AND s.expires_at > ?`, req.tokenHash, new Date().toISOString());
     if (!req.user) fail(401, 'Session is invalid or expired');
-    next();
+    return next();
   }
 
   function participant(req, res, next) {
@@ -105,11 +95,11 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
     next();
   }
 
-  function deviceAuth(req, res, next) {
-    req.device = db.prepare('SELECT * FROM devices WHERE token_hash = ? AND revoked_at IS NULL').get(bearer(req));
+  async function deviceAuth(req, res, next) {
+    req.device = await db.get('SELECT * FROM devices WHERE token_hash = ? AND revoked_at IS NULL', bearer(req));
     if (!req.device) fail(401, 'Device token is invalid or revoked');
-    db.prepare('UPDATE devices SET last_seen_at = ? WHERE id = ?').run(new Date().toISOString(), req.device.id);
-    next();
+    await db.run('UPDATE devices SET last_seen_at = ? WHERE id = ?', new Date().toISOString(), req.device.id);
+    return next();
   }
 
   // shortcut: login throttling is per process, use a shared limiter if running multiple servers.
@@ -126,43 +116,43 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
     next();
   }
 
-  function session(user) {
+  async function session(user) {
     const token = newToken('u_');
     const now = new Date().toISOString();
     const expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    db.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').run(now);
-    db.prepare('INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
-      .run(hashToken(token), user.id, now, expires_at);
+    await db.run('DELETE FROM auth_sessions WHERE expires_at <= ?', now);
+    await db.run('INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
+      hashToken(token), user.id, now, expires_at);
     return { token, expires_at, user: publicUser(user) };
   }
 
-  function assigned(staffId, participantId) {
-    return db.prepare('SELECT 1 FROM staff_participants WHERE staff_id = ? AND participant_id = ?').get(staffId, participantId);
+  async function assigned(staffId, participantId) {
+    return db.get('SELECT 1 FROM staff_participants WHERE staff_id = ? AND participant_id = ?', staffId, participantId);
   }
 
   // Whether `user` may read another person's records: an assigned doctor, or an admin.
-  function canView(user, participantId) {
-    if (user.role === 'staff') return Boolean(assigned(user.id, participantId));
+  async function canView(user, participantId) {
+    if (user.role === 'staff') return Boolean(await assigned(user.id, participantId));
     if (user.role === 'admin') {
-      return Boolean(db.prepare("SELECT 1 FROM users WHERE id = ? AND role = 'participant'").get(participantId));
+      return Boolean(await db.get("SELECT 1 FROM users WHERE id = ? AND role = 'participant'", participantId));
     }
     return false;
   }
 
-  function readableWorkout(req) {
-    const workout = db.prepare('SELECT * FROM workouts WHERE id = ?').get(req.params.id);
-    if (!workout || !(workout.participant_id === req.user.id || canView(req.user, workout.participant_id))) {
+  async function readableWorkout(req) {
+    const workout = await db.get('SELECT * FROM workouts WHERE id = ?', req.params.id);
+    if (!workout || !(workout.participant_id === req.user.id || await canView(req.user, workout.participant_id))) {
       fail(404, 'Workout not found');
     }
     return workout;
   }
 
-  function assignedParticipant(req, res, next) {
-    if (!canView(req.user, req.params.id)) fail(404, 'Participant not found');
-    next();
+  async function assignedParticipant(req, res, next) {
+    if (!await canView(req.user, req.params.id)) fail(404, 'Participant not found');
+    return next();
   }
 
-  function workoutList(participantId, query) {
+  async function workoutList(participantId, query) {
     queryFields(query, ['limit', 'offset', 'status', 'exercise_name', 'kind']);
     const limit = queryInteger(query.limit, 'limit', 20, 1, 100);
     const offset = queryInteger(query.offset, 'offset', 0, 0, 1_000_000_000);
@@ -183,13 +173,13 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
       params.push(query.kind);
     }
     const where = conditions.join(' AND ');
-    const total = db.prepare(`SELECT COUNT(*) AS total FROM workouts WHERE ${where}`).get(...params).total;
-    const workouts = db.prepare(`SELECT * FROM workouts WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
-      .all(...params, limit, offset);
+    const { total } = await db.get(`SELECT COUNT(*) AS total FROM workouts WHERE ${where}`, ...params);
+    const workouts = await db.all(`SELECT * FROM workouts WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+      ...params, limit, offset);
     return { workouts, limit, offset, total };
   }
 
-  function progress(participantId, query) {
+  async function progress(participantId, query) {
     queryFields(query, ['exercise_name', 'kind']);
     let where = "participant_id = ? AND status = 'completed'";
     const params = [participantId];
@@ -202,16 +192,16 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
       where += ' AND kind = ?';
       params.push(query.kind);
     }
-    const totals = db.prepare(`SELECT COUNT(*) AS completed_workouts, COALESCE(SUM(repetitions), 0) AS total_repetitions,
-      COALESCE(SUM(elapsed_seconds), 0) AS total_duration_seconds FROM workouts WHERE ${where}`).get(...params);
-    const daily = db.prepare(`SELECT substr(COALESCE(started_at, created_at), 1, 10) AS date, exercise_name, COUNT(*) AS workouts,
+    const totals = await db.get(`SELECT COUNT(*) AS completed_workouts, COALESCE(SUM(repetitions), 0) AS total_repetitions,
+      COALESCE(SUM(elapsed_seconds), 0) AS total_duration_seconds FROM workouts WHERE ${where}`, ...params);
+    const daily = await db.all(`SELECT substr(COALESCE(started_at, created_at), 1, 10) AS date, exercise_name, COUNT(*) AS workouts,
       SUM(repetitions) AS repetitions, SUM(elapsed_seconds) AS duration_seconds FROM workouts WHERE ${where}
-      GROUP BY date, exercise_name COLLATE NOCASE ORDER BY date, exercise_name`).all(...params);
+      GROUP BY date, exercise_name COLLATE NOCASE ORDER BY date, exercise_name`, ...params);
     return { ...totals, daily };
   }
 
-  app.get('/api/health', (req, res) => {
-    db.prepare('SELECT 1').get();
+  app.get('/api/health', async (req, res) => {
+    await db.get('SELECT 1 AS ok');
     res.json({ status: 'ok' });
   });
 
@@ -224,9 +214,9 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
     const userPassword = password(req.body.password);
     const passwordHash = await hashPassword(userPassword);
     const id = randomUUID();
-    db.prepare(`INSERT INTO users (id, name, email, password_hash, role, created_at)
-      VALUES (?, ?, ?, ?, 'participant', ?)`).run(id, name, userEmail, passwordHash, new Date().toISOString());
-    res.status(201).json(session(db.prepare('SELECT * FROM users WHERE id = ?').get(id)));
+    await db.run(`INSERT INTO users (id, name, email, password_hash, role, created_at)
+      VALUES (?, ?, ?, ?, 'participant', ?)`, id, name, userEmail, passwordHash, new Date().toISOString());
+    res.status(201).json(await session(await db.get('SELECT * FROM users WHERE id = ?', id)));
   });
 
   // A dummy hash keeps unknown-email and incorrect-password checks on the same slow path.
@@ -237,108 +227,107 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
     const userPassword = password(req.body.password);
     const portal = req.body.portal;
     if (portal !== undefined && !Object.hasOwn(portalRoles, portal)) fail(400, 'portal must be patient, doctor or admin');
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(userEmail);
+    const user = await db.get('SELECT * FROM users WHERE email = ?', userEmail);
     const valid = await verifyPassword(userPassword, user ? user.password_hash : await dummyHash);
     if (!user || !valid) fail(401, 'Invalid email or password');
     // Each sign-in page accepts only its own account type; no session is created otherwise.
     if (portal !== undefined && user.role !== portalRoles[portal]) {
       fail(403, wrongPortal[user.role] ?? 'This account cannot sign in here.');
     }
-    res.json(session(user));
+    res.json(await session(user));
   });
 
-  app.post('/api/auth/logout', userAuth, (req, res) => {
-    db.prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(req.tokenHash);
+  app.post('/api/auth/logout', userAuth, async (req, res) => {
+    await db.run('DELETE FROM auth_sessions WHERE token_hash = ?', req.tokenHash);
     res.sendStatus(204);
   });
   app.get('/api/me', userAuth, (req, res) => res.json({ user: publicUser(req.user) }));
 
-  app.get('/api/devices', userAuth, participant, (req, res) => {
-    const devices = db.prepare(`SELECT ${deviceFields} FROM devices WHERE participant_id = ? AND revoked_at IS NULL ORDER BY created_at, id`).all(req.user.id);
+  app.get('/api/devices', userAuth, participant, async (req, res) => {
+    const devices = await db.all(`SELECT ${deviceFields} FROM devices WHERE participant_id = ? AND revoked_at IS NULL ORDER BY created_at, id`, req.user.id);
     res.json({ devices });
   });
 
-  app.post('/api/devices', userAuth, participant, (req, res) => {
+  app.post('/api/devices', userAuth, participant, async (req, res) => {
     bodyFields(req.body, ['name']);
     const name = text(req.body.name, 'name');
     const id = randomUUID();
     const token = newToken('d_');
-    db.prepare('INSERT INTO devices (id, participant_id, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(id, req.user.id, name, hashToken(token), new Date().toISOString());
-    res.status(201).json({ device: db.prepare(`SELECT ${deviceFields} FROM devices WHERE id = ?`).get(id), device_token: token });
+    await db.run('INSERT INTO devices (id, participant_id, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)',
+      id, req.user.id, name, hashToken(token), new Date().toISOString());
+    res.status(201).json({ device: await db.get(`SELECT ${deviceFields} FROM devices WHERE id = ?`, id), device_token: token });
   });
 
-  app.delete('/api/devices/:id', userAuth, participant, (req, res) => {
-    const device = db.prepare('SELECT id FROM devices WHERE id = ? AND participant_id = ? AND revoked_at IS NULL').get(req.params.id, req.user.id);
+  app.delete('/api/devices/:id', userAuth, participant, async (req, res) => {
+    const device = await db.get('SELECT id FROM devices WHERE id = ? AND participant_id = ? AND revoked_at IS NULL', req.params.id, req.user.id);
     if (!device) fail(404, 'Device not found');
     const now = new Date().toISOString();
-    transaction(() => {
-      db.prepare('UPDATE devices SET revoked_at = ? WHERE id = ?').run(now, device.id);
-      db.prepare(`UPDATE workouts SET status = CASE kind WHEN 'reps' THEN 'incomplete' ELSE 'cancelled' END,
+    await transaction(async tx => {
+      await tx.run('UPDATE devices SET revoked_at = ? WHERE id = ?', now, device.id);
+      await tx.run(`UPDATE workouts SET status = CASE kind WHEN 'reps' THEN 'incomplete' ELSE 'cancelled' END,
         phase = CASE kind WHEN 'reps' THEN 'done' ELSE phase END, ended_at = ?, updated_at = ?
-        WHERE device_id = ? AND status IN ('pending', 'active')`).run(now, now, device.id);
-      db.prepare("UPDATE exercise_sessions SET status = 'ended', ended_at = ?, updated_at = ? WHERE device_id = ? AND status = 'active'")
-        .run(now, now, device.id);
+        WHERE device_id = ? AND status IN ('pending', 'active')`, now, now, device.id);
+      await tx.run("UPDATE exercise_sessions SET status = 'ended', ended_at = ?, updated_at = ? WHERE device_id = ? AND status = 'active'",
+        now, now, device.id);
     });
     res.sendStatus(204);
   });
 
-  app.post('/api/workouts', userAuth, participant, (req, res) => {
+  app.post('/api/workouts', userAuth, participant, async (req, res) => {
     bodyFields(req.body, ['device_id', 'exercise_name', 'target_duration_seconds']);
     const deviceId = text(req.body.device_id, 'device_id');
     const name = text(req.body.exercise_name, 'exercise_name');
     const exerciseName = legacyExercises.find(item => item.toLowerCase() === name.toLowerCase()) || name;
     const target = integer(req.body.target_duration_seconds, 'target_duration_seconds', 1, 86400);
-    const device = db.prepare('SELECT id FROM devices WHERE id = ? AND participant_id = ? AND revoked_at IS NULL').get(deviceId, req.user.id);
+    const device = await db.get('SELECT id FROM devices WHERE id = ? AND participant_id = ? AND revoked_at IS NULL', deviceId, req.user.id);
     if (!device) fail(404, 'Device not found');
     const id = randomUUID();
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind, target_duration_seconds, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'timed', ?, 'pending', ?, ?)`).run(id, req.user.id, deviceId, exerciseName, target, now, now);
-    res.status(201).json({ workout: db.prepare('SELECT * FROM workouts WHERE id = ?').get(id) });
+    await db.run(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind, target_duration_seconds, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'timed', ?, 'pending', ?, ?)`, id, req.user.id, deviceId, exerciseName, target, now, now);
+    res.status(201).json({ workout: await db.get('SELECT * FROM workouts WHERE id = ?', id) });
   });
 
-  app.get('/api/workouts', userAuth, participant, (req, res) => res.json(workoutList(req.user.id, req.query)));
-  app.get('/api/progress', userAuth, participant, (req, res) => res.json(progress(req.user.id, req.query)));
-  app.get('/api/workouts/:id', userAuth, (req, res) => res.json({ workout: readableWorkout(req) }));
+  app.get('/api/workouts', userAuth, participant, async (req, res) => res.json(await workoutList(req.user.id, req.query)));
+  app.get('/api/progress', userAuth, participant, async (req, res) => res.json(await progress(req.user.id, req.query)));
+  app.get('/api/workouts/:id', userAuth, async (req, res) => res.json({ workout: await readableWorkout(req) }));
 
-  app.get('/api/workouts/:id/readings', userAuth, (req, res) => {
-    const workout = readableWorkout(req);
+  app.get('/api/workouts/:id/readings', userAuth, async (req, res) => {
+    const workout = await readableWorkout(req);
     queryFields(req.query, ['limit', 'offset']);
     const limit = queryInteger(req.query.limit, 'limit', 100, 1, 1000);
     const offset = queryInteger(req.query.offset, 'offset', 0, 0, 1_000_000_000);
-    const readings = db.prepare('SELECT * FROM workout_readings WHERE workout_id = ? ORDER BY sequence LIMIT ? OFFSET ?').all(workout.id, limit, offset);
-    const total = db.prepare('SELECT COUNT(*) AS total FROM workout_readings WHERE workout_id = ?').get(workout.id).total;
+    const readings = await db.all('SELECT * FROM workout_readings WHERE workout_id = ? ORDER BY sequence LIMIT ? OFFSET ?', workout.id, limit, offset);
+    const { total } = await db.get('SELECT COUNT(*) AS total FROM workout_readings WHERE workout_id = ?', workout.id);
     res.json({ readings, limit, offset, total });
   });
 
-  app.post('/api/workouts/:id/cancel', userAuth, participant, (req, res) => {
-    const workout = readableWorkout(req);
+  app.post('/api/workouts/:id/cancel', userAuth, participant, async (req, res) => {
+    const workout = await readableWorkout(req);
     if (workout.status === 'completed') fail(409, 'A completed workout cannot be cancelled');
     if (workout.kind === 'reps') {
       if (workout.status !== 'incomplete') {
         const now = new Date().toISOString();
-        db.prepare("UPDATE workouts SET status = 'incomplete', phase = 'done', ended_at = ?, updated_at = ? WHERE id = ?").run(now, now, workout.id);
+        await db.run("UPDATE workouts SET status = 'incomplete', phase = 'done', ended_at = ?, updated_at = ? WHERE id = ?", now, now, workout.id);
       }
     } else if (workout.status !== 'cancelled') {
       const now = new Date().toISOString();
-      db.prepare("UPDATE workouts SET status = 'cancelled', ended_at = ?, updated_at = ? WHERE id = ?").run(now, now, workout.id);
+      await db.run("UPDATE workouts SET status = 'cancelled', ended_at = ?, updated_at = ? WHERE id = ?", now, now, workout.id);
     }
-    res.json({ workout: db.prepare('SELECT * FROM workouts WHERE id = ?').get(workout.id) });
+    res.json({ workout: await db.get('SELECT * FROM workouts WHERE id = ?', workout.id) });
   });
 
-  app.get('/api/participants', userAuth, staff, (req, res) => {
-    const participants = db.prepare(`SELECT u.*, (SELECT s.id FROM exercise_sessions s
+  app.get('/api/participants', userAuth, staff, async (req, res) => {
+    const rows = await db.all(`SELECT u.*, (SELECT s.id FROM exercise_sessions s
       WHERE s.participant_id = u.id AND s.status = 'active') AS active_session_id
       FROM users u JOIN staff_participants sp ON sp.participant_id = u.id
-      WHERE sp.staff_id = ? ORDER BY u.name, u.id`).all(req.user.id)
-      .map(row => ({ ...publicUser(row), active_session_id: row.active_session_id }));
-    res.json({ participants });
+      WHERE sp.staff_id = ? ORDER BY u.name, u.id`, req.user.id);
+    res.json({ participants: rows.map(row => ({ ...publicUser(row), active_session_id: row.active_session_id })) });
   });
   app.get('/api/participants/:id/workouts', userAuth, staffOrAdmin, assignedParticipant,
-    (req, res) => res.json(workoutList(req.params.id, req.query)));
+    async (req, res) => res.json(await workoutList(req.params.id, req.query)));
   app.get('/api/participants/:id/progress', userAuth, staffOrAdmin, assignedParticipant,
-    (req, res) => res.json(progress(req.params.id, req.query)));
+    async (req, res) => res.json(await progress(req.params.id, req.query)));
 
   const shared = { db, transaction, userAuth, participant, staff, admin, staffOrAdmin, assigned, canView, assignedParticipant };
   registerSessionRoutes(app, shared);
@@ -348,23 +337,23 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
   registerMessageRoutes(app, { ...shared, botAddress: bot.address || null });
   registerBotRoutes(app, { db, webhookSecret: bot.webhookSecret });
 
-  app.get('/api/device/workout', deviceAuth, (req, res) => {
-    const workout = db.prepare("SELECT * FROM workouts WHERE device_id = ? AND status IN ('pending', 'active')").get(req.device.id);
+  app.get('/api/device/workout', deviceAuth, async (req, res) => {
+    const workout = await db.get("SELECT * FROM workouts WHERE device_id = ? AND status IN ('pending', 'active')", req.device.id);
     if (workout) {
       workout.device_seen_at = new Date().toISOString();
-      db.prepare('UPDATE workouts SET device_seen_at = ? WHERE id = ?').run(workout.device_seen_at, workout.id);
+      await db.run('UPDATE workouts SET device_seen_at = ? WHERE id = ?', workout.device_seen_at, workout.id);
     }
     res.json({ workout: workout || null });
   });
 
-  app.post('/api/device/workouts/:id/updates', deviceAuth, (req, res) => {
-    const target = db.prepare('SELECT kind FROM workouts WHERE id = ? AND device_id = ?').get(req.params.id, req.device.id);
+  app.post('/api/device/workouts/:id/updates', deviceAuth, async (req, res) => {
+    const target = await db.get('SELECT kind FROM workouts WHERE id = ? AND device_id = ?', req.params.id, req.device.id);
     if (!target) fail(404, 'Workout not found');
     if (target.kind === 'reps') {
-      res.json(transaction(() => {
-        const workout = db.prepare('SELECT * FROM workouts WHERE id = ? AND device_id = ?').get(req.params.id, req.device.id);
+      res.json(await transaction(async tx => {
+        const workout = await tx.get('SELECT * FROM workouts WHERE id = ? AND device_id = ?', req.params.id, req.device.id);
         if (!workout) fail(404, 'Workout not found');
-        return applyDeviceEvent(db, workout, req.body, new Date().toISOString());
+        return applyDeviceEvent(tx, workout, req.body, new Date().toISOString());
       }));
       return;
     }
@@ -375,10 +364,10 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
     const heartRate = req.body.heart_rate_bpm == null ? null : integer(req.body.heart_rate_bpm, 'heart_rate_bpm', 1, 300);
     if (req.body.completed !== undefined && typeof req.body.completed !== 'boolean') fail(400, 'completed must be a boolean');
     const completed = req.body.completed === true ? 1 : 0;
-    const result = transaction(() => {
-      const workout = db.prepare('SELECT * FROM workouts WHERE id = ? AND device_id = ?').get(req.params.id, req.device.id);
+    const result = await transaction(async tx => {
+      const workout = await tx.get('SELECT * FROM workouts WHERE id = ? AND device_id = ?', req.params.id, req.device.id);
       if (!workout) fail(404, 'Workout not found');
-      const existing = db.prepare('SELECT * FROM workout_readings WHERE workout_id = ? AND sequence = ?').get(workout.id, sequence);
+      const existing = await tx.get('SELECT * FROM workout_readings WHERE workout_id = ? AND sequence = ?', workout.id, sequence);
       if (existing) {
         if (existing.repetitions !== repetitions || existing.elapsed_seconds !== elapsed || existing.heart_rate_bpm !== heartRate || existing.completed !== completed) {
           fail(409, 'Sequence already exists with different data');
@@ -389,12 +378,12 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
       if (sequence <= workout.last_sequence) fail(409, 'Sequence must increase');
       if (repetitions < workout.repetitions || elapsed < workout.elapsed_seconds) fail(409, 'Cumulative repetitions and elapsed time cannot decrease');
       const now = new Date().toISOString();
-      db.prepare(`INSERT INTO workout_readings (workout_id, sequence, repetitions, elapsed_seconds, heart_rate_bpm, completed, received_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(workout.id, sequence, repetitions, elapsed, heartRate, completed, now);
-      db.prepare(`UPDATE workouts SET status = ?, repetitions = ?, elapsed_seconds = ?, heart_rate_bpm = COALESCE(?, heart_rate_bpm),
-        last_sequence = ?, started_at = COALESCE(started_at, ?), ended_at = ?, updated_at = ? WHERE id = ?`)
-        .run(completed ? 'completed' : 'active', repetitions, elapsed, heartRate, sequence, now, completed ? now : null, now, workout.id);
-      return { workout: db.prepare('SELECT * FROM workouts WHERE id = ?').get(workout.id), duplicate: false };
+      await tx.run(`INSERT INTO workout_readings (workout_id, sequence, repetitions, elapsed_seconds, heart_rate_bpm, completed, received_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`, workout.id, sequence, repetitions, elapsed, heartRate, completed, now);
+      await tx.run(`UPDATE workouts SET status = ?, repetitions = ?, elapsed_seconds = ?, heart_rate_bpm = COALESCE(?, heart_rate_bpm),
+        last_sequence = ?, started_at = COALESCE(started_at, ?), ended_at = ?, updated_at = ? WHERE id = ?`,
+        completed ? 'completed' : 'active', repetitions, elapsed, heartRate, sequence, now, completed ? now : null, now, workout.id);
+      return { workout: await tx.get('SELECT * FROM workouts WHERE id = ?', workout.id), duplicate: false };
     });
     res.json(result);
   });
@@ -416,7 +405,9 @@ export function createApp({ db, corsOrigin = DEFAULT_CORS_ORIGINS, bot = {}, sta
     let message = error.message;
     if (error.type === 'entity.parse.failed') message = 'Malformed JSON body';
     if (error.type === 'entity.too.large') message = 'JSON body exceeds 16kb';
-    if ([1555, 2067].includes(error.errcode)) {
+    if ([1555, 2067].includes(error.errcode) || [1555, 2067].includes(error.rawCode)
+      || ['SQLITE_CONSTRAINT_UNIQUE', 'SQLITE_CONSTRAINT_PRIMARYKEY'].includes(error.code)
+      || (error.code === 'SQLITE_CONSTRAINT' && /UNIQUE|PRIMARY KEY/i.test(error.message ?? ''))) {
       status = 409;
       message = 'Record already exists, or this device already has an unfinished workout';
     }

@@ -21,14 +21,14 @@ const valid = {
 // appear as one string in the repository.
 const published = role => ['motiontrack', role, '2026'].join('-');
 
-function setup(t) {
-  const db = createDatabase(':memory:');
+async function setup(t) {
+  const db = await createDatabase(':memory:');
   t.after(() => db.close());
   const lines = [];
   return { db, lines, log: line => lines.push(String(line)) };
 }
 
-const count = (db, table) => db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n;
+const count = async (db, table) => (await db.get(`SELECT count(*) AS n FROM ${table}`)).n;
 
 function assertNoSecrets(output, env) {
   for (const value of Object.values(env)) {
@@ -37,11 +37,11 @@ function assertNoSecrets(output, env) {
 }
 
 async function assertRefused(t, env, pattern) {
-  const { db, lines, log } = setup(t);
+  const { db, lines, log } = await setup(t);
   const result = await seedDemo({ db, env, log });
   assert.deepEqual(result, { seeded: false, usersCreated: 0, assignmentsCreated: 0 });
-  assert.equal(count(db, 'users'), 0);
-  assert.equal(count(db, 'staff_participants'), 0);
+  assert.equal(await count(db, 'users'), 0);
+  assert.equal(await count(db, 'staff_participants'), 0);
   assert.equal(lines.length, 1);
   assert.match(lines[0], /^Demo accounts not created: /);
   assert.match(lines[0], pattern);
@@ -49,10 +49,10 @@ async function assertRefused(t, env, pattern) {
 }
 
 test('demo seed creates nothing and explains what to set when no passwords are configured', async (t) => {
-  const { db, lines, log } = setup(t);
+  const { db, lines, log } = await setup(t);
   const result = await seedDemo({ db, env: { DEMO_ADMIN_PASSWORD: '' }, log });
   assert.equal(result.seeded, false);
-  assert.equal(count(db, 'users'), 0);
+  assert.equal(await count(db, 'users'), 0);
   assert.deepEqual(lines, [
     'Demo accounts not created: set DEMO_ADMIN_PASSWORD, DEMO_DOCTOR_PASSWORD and DEMO_PATIENT_PASSWORD '
       + '(12-128 characters each)',
@@ -60,10 +60,10 @@ test('demo seed creates nothing and explains what to set when no passwords are c
 });
 
 test('demo seed creates the accounts and assignments with passwords that verify', async (t) => {
-  const { db, lines, log } = setup(t);
+  const { db, lines, log } = await setup(t);
   const result = await seedDemo({ db, env: valid, log });
   assert.deepEqual(result, { seeded: true, usersCreated: 8, assignmentsCreated: 2 });
-  const users = db.prepare('SELECT email, role, password_hash FROM users').all();
+  const users = await db.all('SELECT email, role, password_hash FROM users');
   assert.equal(users.length, 8);
   assert.deepEqual(
     Object.fromEntries(['admin', 'staff', 'participant'].map(role => [role, users.filter(u => u.role === role).length])),
@@ -78,8 +78,8 @@ test('demo seed creates the accounts and assignments with passwords that verify'
       if (role !== user.role) assert.equal(await verifyPassword(other, user.password_hash), false, user.email);
     }
   }
-  const pairs = db.prepare(`SELECT s.email AS staff, p.email AS participant FROM staff_participants sp
-    JOIN users s ON s.id = sp.staff_id JOIN users p ON p.id = sp.participant_id ORDER BY s.email`).all();
+  const pairs = await db.all(`SELECT s.email AS staff, p.email AS participant FROM staff_participants sp
+    JOIN users s ON s.id = sp.staff_id JOIN users p ON p.id = sp.participant_id ORDER BY s.email`);
   assert.deepEqual(pairs.map(row => [row.staff, row.participant]), [
     ['dr.chen@motiontrack.org', 'maya.patel@motiontrack.org'],
     ['dr.morgan@motiontrack.org', 'liam.park@motiontrack.org'],
@@ -111,48 +111,48 @@ test('demo seed refuses a password reused across roles and a partial configurati
 });
 
 test('re-running the demo seed adds nothing and keeps existing password hashes', async (t) => {
-  const { db, lines, log } = setup(t);
+  const { db, lines, log } = await setup(t);
   await seedDemo({ db, env: valid, log });
-  const before = db.prepare('SELECT id, email, password_hash FROM users ORDER BY email').all();
+  const before = await db.all('SELECT id, email, password_hash FROM users ORDER BY email');
   const changed = {
     DEMO_ADMIN_PASSWORD: 'another-admin-value', DEMO_DOCTOR_PASSWORD: 'another-doctor-value',
     DEMO_PATIENT_PASSWORD: 'another-patient-value',
   };
   const result = await seedDemo({ db, env: changed, log });
   assert.deepEqual(result, { seeded: true, usersCreated: 0, assignmentsCreated: 0 });
-  assert.deepEqual(db.prepare('SELECT id, email, password_hash FROM users ORDER BY email').all(), before);
-  assert.equal(count(db, 'staff_participants'), 2);
+  assert.deepEqual(await db.all('SELECT id, email, password_hash FROM users ORDER BY email'), before);
+  assert.equal(await count(db, 'staff_participants'), 2);
   assert.match(lines[1], /0 created, 8 already existed; 0 new/);
   assertNoSecrets(lines.join('\n'), { ...valid, ...changed });
 });
 
-test('the seed command exits 0 so the server still starts, and prints no password', (t) => {
+test('the seed command exits 0 so the server still starts, and prints no password', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'motiontrack-seed-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const run = extra => spawnSync(process.execPath, ['seed-demo.js'], {
     cwd: backendDir, encoding: 'utf8',
     env: { PATH: process.env.PATH, DATABASE_PATH: join(dir, 'seed.sqlite'), ...extra },
   });
-  const users = () => {
-    const db = createDatabase(join(dir, 'seed.sqlite'));
-    try { return count(db, 'users'); } finally { db.close(); }
+  const users = async () => {
+    const db = await createDatabase(join(dir, 'seed.sqlite'));
+    try { return await count(db, 'users'); } finally { await db.close(); }
   };
 
   const unset = run({});
   assert.equal(unset.status, 0, unset.stderr);
   assert.match(unset.stdout, /^Demo accounts not created: set DEMO_ADMIN_PASSWORD/);
-  assert.equal(users(), 0);
+  assert.equal(await users(), 0);
 
   const invalid = { ...valid, DEMO_ADMIN_PASSWORD: published('admin') };
   const refused = run(invalid);
   assert.equal(refused.status, 0, refused.stderr);
   assert.match(refused.stdout, /DEMO_ADMIN_PASSWORD is a published default password/);
   assertNoSecrets(refused.stdout + refused.stderr, invalid);
-  assert.equal(users(), 0);
+  assert.equal(await users(), 0);
 
   const seeded = run(valid);
   assert.equal(seeded.status, 0, seeded.stderr);
   assert.match(seeded.stdout, /Demo accounts ready: 8 created/);
   assertNoSecrets(seeded.stdout + seeded.stderr, valid);
-  assert.equal(users(), 8);
+  assert.equal(await users(), 8);
 });

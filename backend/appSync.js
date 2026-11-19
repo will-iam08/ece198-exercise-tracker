@@ -158,37 +158,37 @@ function createUserRateLimiter(maxRequests, windowMs) {
   };
 }
 
-function sessionWithWorkouts(db, sessionId) {
-  const session = db.prepare('SELECT * FROM exercise_sessions WHERE id = ?').get(sessionId);
+async function sessionWithWorkouts(tx, sessionId) {
+  const session = await tx.get('SELECT * FROM exercise_sessions WHERE id = ?', sessionId);
   if (!session) return null;
-  const workouts = db.prepare("SELECT * FROM workouts WHERE session_id = ? AND kind = 'reps' ORDER BY created_at ASC, id ASC").all(sessionId);
+  const workouts = await tx.all("SELECT * FROM workouts WHERE session_id = ? AND kind = 'reps' ORDER BY created_at ASC, id ASC", sessionId);
   return { ...session, workouts };
 }
 
-function closeActiveAppSession(db, participantId) {
-  const active = db.prepare("SELECT id, source FROM exercise_sessions WHERE participant_id = ? AND status = 'active'").get(participantId);
+async function closeActiveAppSession(tx, participantId) {
+  const active = await tx.get("SELECT id, source FROM exercise_sessions WHERE participant_id = ? AND status = 'active'", participantId);
   if (!active) return null;
   if (active.source !== 'app') return active;
-  db.prepare("DELETE FROM workouts WHERE session_id = ? AND source = 'app' AND status IN ('pending', 'active')").run(active.id);
-  const remaining = db.prepare('SELECT 1 FROM workouts WHERE session_id = ? LIMIT 1').get(active.id);
+  await tx.run("DELETE FROM workouts WHERE session_id = ? AND source = 'app' AND status IN ('pending', 'active')", active.id);
+  const remaining = await tx.get('SELECT 1 AS present FROM workouts WHERE session_id = ? LIMIT 1', active.id);
   if (!remaining) {
-    db.prepare('DELETE FROM exercise_sessions WHERE id = ?').run(active.id);
+    await tx.run('DELETE FROM exercise_sessions WHERE id = ?', active.id);
   }
   return null;
 }
 
-export function registerAppSyncRoutes(app, { db, transaction, userAuth, participant }, options = {}) {
+export function registerAppSyncRoutes(app, { transaction, userAuth, participant }, options = {}) {
   const liveLimitMax = options.liveLimitMax ?? 30;
   const liveLimitWindowMs = options.liveLimitWindowMs ?? 10_000;
   const liveLimiter = createUserRateLimiter(liveLimitMax, liveLimitWindowMs);
 
-  app.post('/api/app/sets', userAuth, participant, (req, res) => {
+  app.post('/api/app/sets', userAuth, participant, async (req, res) => {
     const set = parseSetBody(req.body);
     const now = new Date().toISOString();
 
-    const result = transaction(() => {
-      const existing = db.prepare('SELECT * FROM workouts WHERE participant_id = ? AND client_id = ?')
-        .get(req.user.id, set.clientId);
+    const result = await transaction(async tx => {
+      const existing = await tx.get('SELECT * FROM workouts WHERE participant_id = ? AND client_id = ?',
+        req.user.id, set.clientId);
 
       if (existing && ['completed', 'incomplete'].includes(existing.status)) {
         if (!matchesStoredSet(existing, set)) {
@@ -198,40 +198,40 @@ export function registerAppSyncRoutes(app, { db, transaction, userAuth, particip
           status: 200,
           duplicate: true,
           workout: existing,
-          session: sessionWithWorkouts(db, existing.session_id),
+          session: await sessionWithWorkouts(tx, existing.session_id),
         };
       }
 
       if (existing && ['pending', 'active'].includes(existing.status)) {
-        db.prepare(`UPDATE workouts SET
+        await tx.run(`UPDATE workouts SET
           exercise_name = ?, exercise_id = ?, target_reps = ?, repetitions = ?, elapsed_seconds = ?,
           phase = 'done', status = ?, before_bpm = ?, before_bpm_at = ?, after_bpm = ?, after_bpm_at = ?,
           before_skipped = ?, after_skipped = ?, device_status = NULL, created_at = ?, started_at = ?, ended_at = ?, updated_at = ?
-          WHERE id = ?`).run(
+          WHERE id = ?`,
           set.exercise.name, set.exercise.id, set.targetReps, set.repetitions, set.elapsedSeconds,
           set.status, set.beforeBpm, set.beforeBpm !== null ? set.startedAt : null,
           set.afterBpm, set.afterBpm !== null ? set.endedAt : null,
           set.beforeSkipped, set.afterSkipped, set.startedAt, set.startedAt, set.endedAt, now, existing.id,
         );
-        db.prepare("UPDATE exercise_sessions SET status = 'ended', created_at = ?, ended_at = ?, updated_at = ? WHERE id = ?")
-          .run(set.startedAt, set.endedAt, now, existing.session_id);
+        await tx.run("UPDATE exercise_sessions SET status = 'ended', created_at = ?, ended_at = ?, updated_at = ? WHERE id = ?",
+          set.startedAt, set.endedAt, now, existing.session_id);
         return {
           status: 201,
           duplicate: false,
-          workout: db.prepare('SELECT * FROM workouts WHERE id = ?').get(existing.id),
-          session: sessionWithWorkouts(db, existing.session_id),
+          workout: await tx.get('SELECT * FROM workouts WHERE id = ?', existing.id),
+          session: await sessionWithWorkouts(tx, existing.session_id),
         };
       }
 
       const sessionId = randomUUID();
       const workoutId = randomUUID();
-      db.prepare(`INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, ended_at, updated_at)
-        VALUES (?, ?, NULL, 'app', 'ended', ?, ?, ?)`).run(sessionId, req.user.id, set.startedAt, set.endedAt, now);
-      db.prepare(`INSERT INTO workouts (
+      await tx.run(`INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, ended_at, updated_at)
+        VALUES (?, ?, NULL, 'app', 'ended', ?, ?, ?)`, sessionId, req.user.id, set.startedAt, set.endedAt, now);
+      await tx.run(`INSERT INTO workouts (
         id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
         target_reps, phase, status, repetitions, elapsed_seconds, before_bpm, before_bpm_at, after_bpm, after_bpm_at,
         before_skipped, after_skipped, created_at, started_at, ended_at, updated_at
-      ) VALUES (?, ?, NULL, 'app', ?, ?, 'reps', ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      ) VALUES (?, ?, NULL, 'app', ?, ?, 'reps', ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         workoutId, req.user.id, set.clientId, set.exercise.name, sessionId, set.exercise.id,
         set.targetReps, set.status, set.repetitions, set.elapsedSeconds,
         set.beforeBpm, set.beforeBpm !== null ? set.startedAt : null,
@@ -241,8 +241,8 @@ export function registerAppSyncRoutes(app, { db, transaction, userAuth, particip
       return {
         status: 201,
         duplicate: false,
-        workout: db.prepare('SELECT * FROM workouts WHERE id = ?').get(workoutId),
-        session: sessionWithWorkouts(db, sessionId),
+        workout: await tx.get('SELECT * FROM workouts WHERE id = ?', workoutId),
+        session: await sessionWithWorkouts(tx, sessionId),
       };
     });
 
@@ -253,65 +253,65 @@ export function registerAppSyncRoutes(app, { db, transaction, userAuth, particip
     });
   });
 
-  app.put('/api/app/live', userAuth, participant, liveLimiter, (req, res) => {
+  app.put('/api/app/live', userAuth, participant, liveLimiter, async (req, res) => {
     const live = parseLiveBody(req.body);
     const now = new Date().toISOString();
 
-    const result = transaction(() => {
-      const byClient = db.prepare('SELECT * FROM workouts WHERE participant_id = ? AND client_id = ?')
-        .get(req.user.id, live.clientId);
+    const result = await transaction(async tx => {
+      const byClient = await tx.get('SELECT * FROM workouts WHERE participant_id = ? AND client_id = ?',
+        req.user.id, live.clientId);
       if (byClient && ['completed', 'incomplete'].includes(byClient.status)) {
         fail(409, 'This workout set has already finished');
       }
 
       if (byClient && ['pending', 'active'].includes(byClient.status)) {
-        db.prepare(`UPDATE workouts SET
+        await tx.run(`UPDATE workouts SET
           exercise_name = ?, exercise_id = ?, target_reps = ?, repetitions = ?, elapsed_seconds = ?,
           phase = ?, status = 'active', before_bpm = ?, before_bpm_at = COALESCE(before_bpm_at, ?),
           before_skipped = ?, device_status = ?, device_seen_at = ?, updated_at = ?
-          WHERE id = ?`).run(
+          WHERE id = ?`,
           live.exercise.name, live.exercise.id, live.targetReps, live.repetitions, live.elapsedSeconds,
           live.phase, live.beforeBpm, live.beforeBpm !== null ? now : null,
           live.beforeSkipped, live.deviceStatus, now, now, byClient.id,
         );
-        db.prepare('UPDATE exercise_sessions SET updated_at = ? WHERE id = ?').run(now, byClient.session_id);
+        await tx.run('UPDATE exercise_sessions SET updated_at = ? WHERE id = ?', now, byClient.session_id);
         return {
-          workout: db.prepare('SELECT * FROM workouts WHERE id = ?').get(byClient.id),
-          session: sessionWithWorkouts(db, byClient.session_id),
+          workout: await tx.get('SELECT * FROM workouts WHERE id = ?', byClient.id),
+          session: await sessionWithWorkouts(tx, byClient.session_id),
         };
       }
 
-      const blocking = closeActiveAppSession(db, req.user.id);
+      const blocking = await closeActiveAppSession(tx, req.user.id);
       if (blocking) {
         fail(409, 'You already have an active Wi-Fi exercise session');
       }
 
       const sessionId = randomUUID();
       const workoutId = randomUUID();
-      db.prepare(`INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, updated_at)
-        VALUES (?, ?, NULL, 'app', 'active', ?, ?)`).run(sessionId, req.user.id, now, now);
-      db.prepare(`INSERT INTO workouts (
+      await tx.run(`INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, updated_at)
+        VALUES (?, ?, NULL, 'app', 'active', ?, ?)`, sessionId, req.user.id, now, now);
+      await tx.run(`INSERT INTO workouts (
         id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
         target_reps, phase, status, repetitions, elapsed_seconds, before_bpm, before_bpm_at,
         before_skipped, device_status, device_seen_at, created_at, started_at, updated_at
-      ) VALUES (?, ?, NULL, 'app', ?, ?, 'reps', ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      ) VALUES (?, ?, NULL, 'app', ?, ?, 'reps', ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         workoutId, req.user.id, live.clientId, live.exercise.name, sessionId, live.exercise.id,
         live.targetReps, live.phase, live.repetitions, live.elapsedSeconds,
         live.beforeBpm, live.beforeBpm !== null ? now : null,
         live.beforeSkipped, live.deviceStatus, now, now, now, now,
       );
       return {
-        workout: db.prepare('SELECT * FROM workouts WHERE id = ?').get(workoutId),
-        session: sessionWithWorkouts(db, sessionId),
+        workout: await tx.get('SELECT * FROM workouts WHERE id = ?', workoutId),
+        session: await sessionWithWorkouts(tx, sessionId),
       };
     });
 
     res.json({ ...result, server_time: now });
   });
 
-  app.delete('/api/app/live', userAuth, participant, (req, res) => {
-    transaction(() => {
-      closeActiveAppSession(db, req.user.id);
+  app.delete('/api/app/live', userAuth, participant, async (req, res) => {
+    await transaction(async tx => {
+      await closeActiveAppSession(tx, req.user.id);
     });
     res.sendStatus(204);
   });

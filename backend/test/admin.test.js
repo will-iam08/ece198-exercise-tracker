@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, password } from './fixture.js';
 
-const sessionRows = f => f.db.prepare('SELECT COUNT(*) AS n FROM auth_sessions').get().n;
+const sessionRows = async f => (await f.db.get('SELECT COUNT(*) AS n FROM auth_sessions')).n;
 
 test('each sign-in page accepts only its own account type and creates no session otherwise', async t => {
   const f = await fixture(t);
@@ -20,10 +20,10 @@ test('each sign-in page accepts only its own account type and creates no session
     ['boss@example.com', 'doctor', 'This is an admin account. Use the admin sign-in.'],
   ];
   for (const [email, portal, message] of cases) {
-    const before = sessionRows(f);
+    const before = await sessionRows(f);
     const { data } = await login(email, portal, 403);
     assert.equal(data.error.message, message, `${email} on ${portal}`);
-    assert.equal(sessionRows(f), before, 'no session row is created');
+    assert.equal(await sessionRows(f), before, 'no session row is created');
   }
   assert.equal((await login('pat@example.com', 'patient')).data.user.role, 'participant');
   assert.equal((await login('doc@example.com', 'doctor')).data.user.role, 'staff');
@@ -161,7 +161,7 @@ test('care plans: assigned doctor and admin only, validated, and shown to the pa
   assert.equal(byAdmin.back_row_reps, 50);
   assert.equal(byAdmin.doctor_name, 'Site admin');
   // Unassigning removes the doctor's access to the plan.
-  f.db.prepare('DELETE FROM staff_participants WHERE staff_id = ?').run(doctor.id);
+  await f.db.run('DELETE FROM staff_participants WHERE staff_id = ?', doctor.id);
   await f.request(path, { token: doctor.token, status: 404 });
 });
 

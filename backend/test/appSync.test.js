@@ -81,7 +81,7 @@ test('app upload maps exercises 1/3/4, applies completeness rules and is idempot
   }), 201)).data;
   assert.equal(partialReps.workout.status, 'incomplete');
 
-  const count = f.db.prepare('SELECT COUNT(*) AS n FROM workouts WHERE participant_id = ?').get(patient.user.id).n;
+  const count = (await f.db.get('SELECT COUNT(*) AS n FROM workouts WHERE participant_id = ?', patient.user.id)).n;
   assert.equal(count, 5);
 
   // Assigned doctor, admin, and progress/sessions APIs read app-synced sets cleanly.

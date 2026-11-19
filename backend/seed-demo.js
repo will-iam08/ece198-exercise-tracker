@@ -85,45 +85,38 @@ export async function seedDemo({ db, env = process.env, log = console.log }) {
   for (const [role, value] of Object.entries(passwords)) hashes[role] = await hashPassword(value);
 
   const now = new Date().toISOString();
-  const insertUser = db.prepare(
-    'INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(email) DO NOTHING'
-  );
-  const findUser = db.prepare('SELECT id, role FROM users WHERE email = ?');
-  const insertAssignment = db.prepare(
-    'INSERT INTO staff_participants (staff_id, participant_id) VALUES (?, ?) ON CONFLICT DO NOTHING'
-  );
-
   let usersCreated = 0;
   let assignmentsCreated = 0;
-  db.exec('BEGIN IMMEDIATE');
-  try {
+  await db.transaction(async tx => {
     for (const account of ACCOUNTS) {
-      usersCreated += Number(
-        insertUser.run(randomUUID(), account.name, account.email, hashes[account.role], account.role, now).changes
+      const res = await tx.run(
+        'INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(email) DO NOTHING',
+        randomUUID(), account.name, account.email, hashes[account.role], account.role, now,
       );
+      usersCreated += Number(res.changes);
     }
     for (const [staffEmail, participantEmail] of ASSIGNMENTS) {
-      const staff = findUser.get(staffEmail);
-      const participant = findUser.get(participantEmail);
+      const staff = await tx.get('SELECT id, role FROM users WHERE email = ?', staffEmail);
+      const participant = await tx.get('SELECT id, role FROM users WHERE email = ?', participantEmail);
       if (staff?.role === 'staff' && participant?.role === 'participant') {
-        assignmentsCreated += Number(insertAssignment.run(staff.id, participant.id).changes);
+        const res = await tx.run(
+          'INSERT INTO staff_participants (staff_id, participant_id) VALUES (?, ?) ON CONFLICT DO NOTHING',
+          staff.id, participant.id,
+        );
+        assignmentsCreated += Number(res.changes);
       }
     }
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  });
   log(`Demo accounts ready: ${usersCreated} created, ${ACCOUNTS.length - usersCreated} already existed; `
     + `${assignmentsCreated} new doctor-patient assignments`);
   return { seeded: true, usersCreated, assignmentsCreated };
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  const db = createDatabase();
+  const db = await createDatabase();
   try {
     await seedDemo({ db });
   } finally {
-    db.close();
+    await db.close();
   }
 }

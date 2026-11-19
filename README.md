@@ -13,6 +13,10 @@ An exercise is **Complete** only when every rep was counted and both heart-rate 
 The website says "patient", "doctor" and "admin"; the API, CLI and database call those roles `participant`, `staff`
 and `admin`.
 
+The database defaults to local SQLite (`backend/data/ece198.sqlite`) and optionally connects to a hosted Turso
+libSQL database when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set (used on Render's free plan to keep
+synced workouts across deploys).
+
 Note on legacy Wi-Fi firmware: direct ESP32-to-server Wi-Fi device tokens and `firmware/` are kept in the repository
 for backward compatibility and preserving historical device records, while the patient website now acts as a synced
 dashboard for Motion Log (`mobile/`). [Mobile wiring and setup guide](mobile/setup-guide.md)

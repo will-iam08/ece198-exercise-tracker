@@ -13,7 +13,7 @@ async function setup(t) {
     (await post(`/api/sessions/${session.id}/exercises`, user.token, { exercise_id, target_reps }, 201)).data.workout;
   const send = (w, body, status = 200) => post(`/api/device/workouts/${w.id}/updates`, dev, body, status);
   const current = async () => (await f.request('/api/device/workout', { token: dev })).data.workout;
-  const events = w => f.db.prepare('SELECT COUNT(*) AS n FROM workout_events WHERE workout_id = ?').get(w.id).n;
+  const events = async w => (await f.db.get('SELECT COUNT(*) AS n FROM workout_events WHERE workout_id = ?', w.id)).n;
   return { f, user, tracker, dev, post, session, exercise, send, current, events };
 }
 
@@ -58,11 +58,11 @@ test('exact retry is a duplicate', async t => {
   const w = await exercise('arm_curl', 2);
   await send(w, { sequence: 1, event: 'before_bpm', bpm: 70 });
   await send(w, { sequence: 2, event: 'progress', repetitions: 1 });
-  const before = events(w);
+  const before = await events(w);
   const r = (await send(w, { sequence: 2, event: 'progress', repetitions: 1 })).data;
   assert.equal(r.duplicate, true);
   assert.equal(r.workout.repetitions, 1);
-  assert.equal(events(w), before);
+  assert.equal(await events(w), before);
   await send(w, { sequence: 2, event: 'progress', repetitions: 2 }, 409);
   await send(w, { sequence: 3, event: 'progress', repetitions: 2 });
   await send(w, { sequence: 4, event: 'after_bpm', bpm: 65 });
@@ -173,7 +173,7 @@ test('device_seen_at updates on poll and upload', async t => {
   const dup = (await send(w, { sequence: 1, event: 'status', capture_status: 'reading' })).data;
   assert.equal(dup.duplicate, true);
   assert.ok(dup.workout.device_seen_at > up.device_seen_at);
-  assert.ok(f.db.prepare('SELECT device_seen_at FROM workouts WHERE id = ?').get(w.id).device_seen_at);
+  assert.ok((await f.db.get('SELECT device_seen_at FROM workouts WHERE id = ?', w.id)).device_seen_at);
   assert.ok(dev);
 });
 
