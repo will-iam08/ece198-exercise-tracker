@@ -11,3 +11,12 @@ services:
         value: 24.11.0
       - key: HOST
         value: 0.0.0.0
+      # Passwords for the demo accounts created by seed-demo.js. Render generates
+      # a random value for each one that does not exist yet; read them on the
+      # service's Environment page. Without them no demo accounts are created.
+      - key: DEMO_ADMIN_PASSWORD
+        generateValue: true
+      - key: DEMO_DOCTOR_PASSWORD
+        generateValue: true
+      - key: DEMO_PATIENT_PASSWORD
+        generateValue: true

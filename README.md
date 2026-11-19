@@ -13,12 +13,15 @@ An exercise is **Complete** only when every rep was counted and both heart-rate 
 The website says "patient", "doctor" and "admin"; the API, CLI and database call those roles `participant`, `staff`
 and `admin`.
 
+For direct iPhone control over Bluetooth, use the [Motion Log app and integrated ESP32 firmware](mobile/). [Wiring and setup guide](mobile/setup-guide.md)
+
 ## Layout
 
 ```text
 backend/    Node 24 + Express + SQLite API, device protocol, account CLI, email bot, tests
 frontend/   React + Vite website: patient at /, doctor at /doctor, admin at /admin; synthetic test device script
 firmware/   ESP32 Arduino sketch (MotionTrack/), host tests, wiring and flashing guide
+mobile/     SwiftUI iPhone app, Bluetooth-enabled ESP32 firmware, wiring guide and protocol tests
 docs/       user-guide.md (using the website), demo.md (setup and demo script), design/ (the approved design)
 ```
 
@@ -54,6 +57,8 @@ described in [docs/demo.md](docs/demo.md). Run the checks with `cd backend && np
 - [Demo setup and script](docs/demo.md): exact steps, with the test device or the real ESP32; LAN and live-domain
   access; the email bot
 - [Backend: API, device protocol, schema, migration, CLI](backend/README.md)
+- [Demo accounts and Render deployment](backend/README.md#demo-accounts-and-render): the demo seed needs
+  `DEMO_ADMIN_PASSWORD`, `DEMO_DOCTOR_PASSWORD` and `DEMO_PATIENT_PASSWORD` and creates nothing without them
 - [Frontend: website setup, test device, behaviour](frontend/README.md)
 - [Firmware: wiring, libraries, flashing, Serial commands](firmware/README.md)
 - [Approved design](docs/design/2026-11-18-motiontrack-design.md)
