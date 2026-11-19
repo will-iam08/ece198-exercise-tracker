@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { assignmentMaps, isAssigned, parseDoctorForm } from '../lib/admin.js';
+import { chipCounts, filterPatients } from '../lib/filters.js';
 import { formatDateTime } from '../lib/format.js';
-import { Avatar, ErrorMessage, Icon, LiveBadge, Loading, ScreenHeading } from './common.jsx';
+import { Avatar, ErrorMessage, FilterChips, Icon, LiveBadge, Loading, ScreenHeading, TabNav } from './common.jsx';
 import { PatientDetail } from './PatientDetail.jsx';
 
 const REFRESH_MS = 10000;
@@ -137,21 +138,42 @@ function PatientRows({ patients, doctorsByPatient, onOpenPatient, label }) {
 
 function AllPatients({ overview, onOpenPatient }) {
   const [filter, setFilter] = useState('');
+  const [chip, setChip] = useState('all');
   const { doctorsByPatient } = assignmentMaps(overview);
-  const term = filter.trim().toLowerCase();
-  const patients = term
-    ? overview.patients.filter(patient => `${patient.name} ${patient.email}`.toLowerCase().includes(term))
-    : overview.patients;
+  const searched = filterPatients(overview.patients, { query: filter, doctorsByPatient });
+  const patients = filterPatients(searched, { chip, doctorsByPatient });
+  const counts = chipCounts(searched, ['all', 'live', 'unassigned'], (items, id) => filterPatients(items, { chip: id, doctorsByPatient }));
   return (
     <section aria-labelledby="all-patients-heading">
       <div id="all-patients-heading"><ScreenHeading>All patients</ScreenHeading></div>
       <p>Every patient account, with their doctors and sessions. Open a patient to see their sessions and care plan.</p>
       <div className="field">
         <label htmlFor="patient-filter">Find a patient by name or email</label>
-        <input id="patient-filter" type="text" value={filter} onChange={e => setFilter(e.target.value)} aria-describedby="patient-filter-count" />
+        <div className="toolbar">
+          <div className="search-field">
+            <Icon name="search" />
+            <input id="patient-filter" type="search" autoComplete="off" value={filter} onChange={e => setFilter(e.target.value)} aria-describedby="patient-filter-count" />
+          </div>
+          <FilterChips
+            label="Show patients"
+            value={chip}
+            onChange={setChip}
+            counts={counts}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'live', label: 'Exercising now', icon: 'pulse' },
+              { id: 'unassigned', label: 'No doctor' },
+            ]}
+          />
+        </div>
         <p className="hint" id="patient-filter-count" role="status">Showing {patients.length} of {overview.patients.length} patients.</p>
       </div>
       {overview.patients.length === 0 && <p className="empty">No patients have created an account yet.</p>}
+      {overview.patients.length > 0 && patients.length === 0 && (
+        <p className="empty">
+          No patients match. <button type="button" className="button button-link" onClick={() => { setChip('all'); setFilter(''); }}>Clear search and filters</button>
+        </p>
+      )}
       {patients.length > 0 && <PatientRows patients={patients} doctorsByPatient={doctorsByPatient} onOpenPatient={onOpenPatient} label="All patients" />}
     </section>
   );
@@ -391,13 +413,7 @@ export function AdminApp() {
 
   return (
     <>
-      <nav className="nav" aria-label="Admin sections">
-        {VIEWS.map(item => (
-          <button key={item.id} type="button" className="nav-button" aria-current={view === item.id ? 'page' : undefined} onClick={() => setView(item.id)}>
-            <Icon name={item.icon} />{item.label}
-          </button>
-        ))}
-      </nav>
+      <TabNav views={VIEWS} current={view} onChange={setView} label="Admin sections" />
       <div className="card">
         {error && overview && (
           <p className="alert alert-warning" role="status">

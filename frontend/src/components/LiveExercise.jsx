@@ -43,7 +43,7 @@ const PHASE_HELP = {
 
 // The exercise that is running now: steps, the big rep count, what the device
 // is doing, and the Skip reading / Stop exercise actions.
-export function LiveExercise({ workout, serverTime, disconnected, onChanged }) {
+export function LiveExercise({ workout, serverTime, disconnected, onChanged, soundOn = false, onToggleSound }) {
   const { api } = useAuth();
   const [confirmStop, setConfirmStop] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -80,9 +80,16 @@ export function LiveExercise({ workout, serverTime, disconnected, onChanged }) {
           <p className="eyebrow">Current exercise</p>
           <h3 id="live-heading" className="live-heading">{workout.exercise_name}</h3>
         </div>
-        {sensor === 'ok' && <LiveBadge label="Live" />}
-        {sensor === 'stale' && <span className="badge badge-stale"><Icon name="alert" />Not responding</span>}
-        {sensor === 'offline' && <span className="badge badge-pending"><Icon name="wifiOff" />Offline</span>}
+        <div className="hud-tools">
+          {onToggleSound && (
+            <button type="button" className="button button-small sound-toggle" aria-pressed={soundOn} onClick={onToggleSound}>
+              <Icon name={soundOn ? 'volume' : 'volumeOff'} />Sound cues: {soundOn ? 'On' : 'Off'}
+            </button>
+          )}
+          {sensor === 'ok' && <LiveBadge label="Live" />}
+          {sensor === 'stale' && <span className="badge badge-stale"><Icon name="alert" />Not responding</span>}
+          {sensor === 'offline' && <span className="badge badge-pending"><Icon name="wifiOff" />Offline</span>}
+        </div>
       </div>
 
       <Steps workout={workout} />
@@ -90,11 +97,13 @@ export function LiveExercise({ workout, serverTime, disconnected, onChanged }) {
       <div className="hud-grid">
         <div className="hud-reps">
           <p className="rep-count">
-            <span aria-hidden="true">{workout.repetitions}<span className="rep-of"> / {workout.target_reps}</span></span>
+            {/* Keyed by the count so each new rep rolls in. */}
+            <span className="rep-now" aria-hidden="true"><span className="rep-digits" key={workout.repetitions}>{workout.repetitions}</span></span>
+            <span className="rep-of" aria-hidden="true">/ {workout.target_reps}</span>
             <span className="visually-hidden">{workout.repetitions} of {workout.target_reps} reps</span>
           </p>
           <p className="rep-count-label" aria-hidden="true">reps</p>
-          <div className="rep-bar" aria-hidden="true"><div className="rep-bar-fill" style={{ width: `${percent}%` }} /></div>
+          <div className="rep-bar" aria-hidden="true"><div className="rep-bar-fill" style={{ transform: `scaleX(${percent / 100})` }} /></div>
         </div>
 
         <div className="hud-side">

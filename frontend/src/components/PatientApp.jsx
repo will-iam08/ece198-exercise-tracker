@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
-import { Icon } from './common.jsx';
+import { TabNav } from './common.jsx';
+import { Onboarding } from './Onboarding.jsx';
 import { DevicesPanel } from './DevicesPanel.jsx';
 import { PatientMessages } from './PatientMessages.jsx';
 import { RepProgress } from './RepProgress.jsx';
@@ -52,15 +53,30 @@ export function PatientApp() {
 
   const onChanged = useCallback(() => setRefreshKey(key => key + 1), []);
 
+  // How many exercises are complete, for the first-visit checklist. It stays
+  // hidden (null) until this is known, and is not fetched again once done.
+  const [completedExercises, setCompletedExercises] = useState(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  useEffect(() => {
+    if (onboardingDismissed || completedExercises > 0) return undefined;
+    const controller = new AbortController();
+    api('/api/progress', { query: { kind: 'reps' }, signal: controller.signal })
+      .then(data => setCompletedExercises(data.completed_workouts ?? 0))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [api, refreshKey, onboardingDismissed, completedExercises]);
+
   return (
     <>
-      <nav className="nav" aria-label="Main sections">
-        {VIEWS.map(item => (
-          <button key={item.id} type="button" className="nav-button" aria-current={view === item.id ? 'page' : undefined} onClick={() => setView(item.id)}>
-            <Icon name={item.icon} />{item.label}
-          </button>
-        ))}
-      </nav>
+      <Onboarding
+        deviceCount={devices ? devices.length : null}
+        completedExercises={completedExercises}
+        dismissed={onboardingDismissed}
+        onDismiss={() => setOnboardingDismissed(true)}
+        onGoToDevices={() => setView('devices')}
+        onGoToSession={() => setView('session')}
+      />
+      <TabNav views={VIEWS} current={view} onChange={setView} label="Main sections" />
       <div className="card">
         {view === 'session' && (
           <SessionScreen

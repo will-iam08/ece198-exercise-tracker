@@ -3,7 +3,7 @@ import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { formatDateTime } from '../lib/format.js';
 import { BODY_MAX, SUBJECT_MAX, parseQuestion, sourceLabel } from '../lib/messages.js';
-import { ErrorMessage, Icon, Loading, ScreenHeading } from './common.jsx';
+import { CopyButton, ErrorMessage, Icon, Loading, ScreenHeading } from './common.jsx';
 
 const REFRESH_MS = 15000;
 
@@ -90,13 +90,16 @@ export function PatientMessages() {
       <div id="messages-heading"><ScreenHeading>Messages</ScreenHeading></div>
       <p>Ask your doctor a question about your exercises. Replies appear below.</p>
       {bot?.address && (
-        <p className="alert alert-info">
-          <Icon name="mail" /> You can also email <strong>MotionTrack Care Bot</strong> (
-          <a href={`mailto:${encodeURIComponent(`MotionTrack Care Bot <${bot.address}>`)}`}>
-            <strong className="break">{bot.address}</strong>
-          </a>
-          ) from <strong className="break">{bot.email}</strong>. Emails from other addresses are not delivered.
-        </p>
+        <div className="alert alert-info">
+          <p>
+            <Icon name="mail" /> You can also email <strong>MotionTrack Care Bot</strong> (
+            <a href={`mailto:${encodeURIComponent(`MotionTrack Care Bot <${bot.address}>`)}`}>
+              <strong className="break">{bot.address}</strong>
+            </a>
+            ) from <strong className="break">{bot.email}</strong>. Emails from other addresses are not delivered.
+          </p>
+          <CopyButton text={bot.address} label="Copy email" copiedLabel="Email copied" />
+        </div>
       )}
       <AskForm onSent={() => load()} />
       <h3>Your questions</h3>

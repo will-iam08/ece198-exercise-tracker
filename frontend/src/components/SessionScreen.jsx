@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useSession } from '../hooks/useSession.js';
 import { formatDateTime } from '../lib/format.js';
 import { bpmLabel, isOpen, statusLabel, withWorkout } from '../lib/exerciseStatus.js';
+import { createChimePlayer, cueEvents } from '../lib/soundCues.js';
 import { CarePlanCard } from './CarePlan.jsx';
 import { ErrorMessage, Icon, Loading, ScreenHeading } from './common.jsx';
 import { ExercisePicker } from './ExercisePicker.jsx';
@@ -237,6 +238,27 @@ export function SessionScreen({
     }
   }, [openId, watchedId, onChanged]);
 
+  // Optional sound cues for when the patient's arm is away from the screen.
+  // The setting lives only in memory, like everything else on this site.
+  const [soundOn, setSoundOn] = useState(false);
+  const playerRef = useRef(null);
+  const previousRef = useRef(null);
+  useEffect(() => () => playerRef.current?.close(), []);
+  useEffect(() => {
+    const previous = previousRef.current;
+    previousRef.current = lastWorkout;
+    if (!soundOn || !playerRef.current) return;
+    for (const cue of cueEvents(previous, lastWorkout)) playerRef.current.play(cue);
+  }, [lastWorkout, soundOn]);
+
+  function toggleSound() {
+    if (soundOn) return setSoundOn(false);
+    // Browsers only allow audio after a tap, so the player starts here.
+    playerRef.current ??= createChimePlayer();
+    playerRef.current.play('rep');
+    return setSoundOn(true);
+  }
+
   const deviceName = id => devices?.find(device => device.id === id)?.name ?? 'a removed device';
 
   function startSession(id, message) {
@@ -305,7 +327,15 @@ export function SessionScreen({
         )}
 
         {!ended && openWorkout && (
-          <LiveExercise key={openWorkout.id} workout={openWorkout} serverTime={serverTime} disconnected={disconnected} onChanged={updateWorkout} />
+          <LiveExercise
+            key={openWorkout.id}
+            workout={openWorkout}
+            serverTime={serverTime}
+            disconnected={disconnected}
+            onChanged={updateWorkout}
+            soundOn={soundOn}
+            onToggleSound={toggleSound}
+          />
         )}
 
         {!ended && !openWorkout && (

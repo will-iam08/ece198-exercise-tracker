@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { describeError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { formatDateTime } from '../lib/format.js';
+import { chipCounts, filterMessages } from '../lib/filters.js';
 import { BODY_MAX, parseReply, sourceLabel, unreadText } from '../lib/messages.js';
-import { Avatar, ErrorMessage, Icon, LiveBadge, Loading } from './common.jsx';
+import { Avatar, ErrorMessage, FilterChips, Icon, LiveBadge, Loading, SearchField } from './common.jsx';
 
 const REFRESH_MS = 10000;
 const PAGE = 10;
@@ -93,7 +94,8 @@ function InboxMessage({ message, onChanged, onOpenPatient }) {
 // the doctor's assigned patients, sent from the website or by email.
 export function MessageInbox({ onOpenPatient }) {
   const { api } = useAuth();
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [chip, setChip] = useState('all');
+  const [query, setQuery] = useState('');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [shown, setShown] = useState(PAGE);
@@ -108,7 +110,7 @@ export function MessageInbox({ onOpenPatient }) {
     (async () => {
       while (!stopped) {
         try {
-          const result = await api('/api/doctor/messages', { query: { unread_only: unreadOnly ? 1 : 0 }, signal: controller.signal });
+          const result = await api('/api/doctor/messages', { query: { unread_only: 0 }, signal: controller.signal });
           if (stopped) return;
           setData(result);
           setError(null);
@@ -124,7 +126,7 @@ export function MessageInbox({ onOpenPatient }) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [api, unreadOnly, tick]);
+  }, [api, tick]);
 
   function changed(message) {
     setData(previous => previous && {
@@ -135,7 +137,11 @@ export function MessageInbox({ onOpenPatient }) {
   }
 
   const unread = data?.unread_count ?? 0;
-  const messages = data?.messages ?? [];
+  const allMessages = data?.messages ?? [];
+  const searched = filterMessages(allMessages, { query });
+  const messages = filterMessages(searched, { chip });
+  const counts = chipCounts(searched, ['all', 'unread', 'email', 'portal'], (items, id) => filterMessages(items, { chip: id }));
+  const pick = next => { setChip(next); setShown(PAGE); };
 
   return (
     <section className="card inbox" aria-labelledby="inbox-heading">
@@ -146,10 +152,23 @@ export function MessageInbox({ onOpenPatient }) {
         </span>
       </div>
       <p>Questions from your assigned patients, sent from the website or by email.</p>
-      <label className="choice">
-        <input type="checkbox" checked={unreadOnly} onChange={e => { setUnreadOnly(e.target.checked); setShown(PAGE); }} />
-        <span>Show unread messages only</span>
-      </label>
+      {allMessages.length > 0 && (
+        <div className="toolbar">
+          <SearchField id="inbox-search" label="Search messages" placeholder="Search messages" value={query} onChange={value => { setQuery(value); setShown(PAGE); }} />
+          <FilterChips
+            label="Show messages"
+            value={chip}
+            onChange={pick}
+            counts={counts}
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'unread', label: 'Unread', icon: 'mail' },
+              { id: 'email', label: 'By email' },
+              { id: 'portal', label: 'From website' },
+            ]}
+          />
+        </div>
+      )}
       {error && data && (
         <p className="alert alert-warning" role="status">
           <span aria-hidden="true">⚠ </span><strong>Could not refresh the inbox.</strong> Trying again automatically.
@@ -157,8 +176,11 @@ export function MessageInbox({ onOpenPatient }) {
       )}
       {error && !data && <ErrorMessage error={error} onRetry={refresh} />}
       {!data && !error && <Loading label="Loading your messages…" />}
-      {data && messages.length === 0 && (
-        <p className="empty">{unreadOnly ? 'No unread messages.' : 'No messages from your patients yet.'}</p>
+      {data && allMessages.length === 0 && <p className="empty">No messages from your patients yet.</p>}
+      {data && allMessages.length > 0 && messages.length === 0 && (
+        <p className="empty">
+          No messages match. <button type="button" className="button button-link" onClick={() => { pick('all'); setQuery(''); }}>Show all messages</button>
+        </p>
       )}
       {messages.length > 0 && (
         <ul className="list message-list" aria-label="Patient messages">

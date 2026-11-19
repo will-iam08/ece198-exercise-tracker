@@ -1,10 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { describeError } from '../api.js';
 import { STATUS_LABELS } from '../lib/format.js';
 
 // Line icons, drawn on a 24px grid with the current text colour. They are
 // always decorative: the text next to them carries the meaning.
 const ICON_PATHS = {
+  volume: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11',
+  volumeOff: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4zM16 9.5l5 5M21 9.5l-5 5',
+  search: 'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.5 15.5L20 20',
+  download: 'M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14',
+  printer: 'M7 9V4h10v5M7 17H5a1 1 0 0 1-1-1v-5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a1 1 0 0 1-1 1h-2M8 14h8v6H8z',
+  copy: 'M9 9h10v10H9zM5 15V5h10',
   pulse: 'M3 12h4l2.5-6 4 12 2.5-6H21',
   heart: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z',
   check: 'M5 12.5l4.5 4.5L19 7.5',
@@ -133,6 +139,109 @@ export function PlanCheck({ check }) {
       <span className={`badge badge-${style.badge}`}><Icon name={style.icon} />{style.word}</span>
       <span className="visually-hidden">: </span>
       <span className="plan-check-text">{check.label}</span>
+    </span>
+  );
+}
+
+// Section tabs with an indicator that slides to the current tab. The current
+// tab is still marked with aria-current and a solid outline before the
+// indicator has been measured, so nothing depends on the animation.
+export function TabNav({ views, current, onChange, label }) {
+  const navRef = useRef(null);
+  const [box, setBox] = useState(null);
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return undefined;
+    function measure() {
+      const active = nav.querySelector('[aria-current="page"]');
+      if (!active) return setBox(null);
+      return setBox({ x: active.offsetLeft, y: active.offsetTop, w: active.offsetWidth, h: active.offsetHeight });
+    }
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [current]);
+
+  const style = box
+    ? { '--indicator-x': `${box.x}px`, '--indicator-y': `${box.y}px`, '--indicator-w': `${box.w}px`, '--indicator-h': `${box.h}px`, '--indicator-opacity': 1 }
+    : undefined;
+
+  return (
+    <nav ref={navRef} className={box ? 'nav nav-measured' : 'nav'} aria-label={label} style={style}>
+      <span className="nav-indicator" aria-hidden="true" />
+      {views.map(item => (
+        <button key={item.id} type="button" className="nav-button" aria-current={current === item.id ? 'page' : undefined} onClick={() => onChange(item.id)}>
+          <Icon name={item.icon} />{item.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+// Quick filters as toggle buttons in a labelled group. Each chip says how many
+// items it would show, so a filter never hides things silently.
+export function FilterChips({ label, options, value, onChange, counts }) {
+  return (
+    <div className="chips" role="group" aria-label={label}>
+      {options.map(option => (
+        <button
+          key={option.id}
+          type="button"
+          className="chip"
+          aria-pressed={value === option.id}
+          onClick={() => onChange(option.id)}
+        >
+          {option.icon && <Icon name={option.icon} />}
+          {option.label}
+          {counts && counts[option.id] !== undefined && <span className="chip-count">{counts[option.id]}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// A labelled search box (the label is visually hidden; the placeholder is not a label).
+export function SearchField({ id, label, value, onChange, placeholder }) {
+  return (
+    <div className="search-field">
+      <label htmlFor={id} className="visually-hidden">{label}</label>
+      <Icon name="search" />
+      <input id={id} type="search" value={value} placeholder={placeholder} onChange={event => onChange(event.target.value)} autoComplete="off" />
+    </div>
+  );
+}
+
+// Copies text and confirms in words (and to screen readers). If the browser
+// blocks the clipboard, it says so instead of failing silently.
+export function CopyButton({ text, label = 'Copy', copiedLabel = 'Copied' }) {
+  const [state, setState] = useState('idle');
+  useEffect(() => {
+    if (state === 'idle') return undefined;
+    const timer = setTimeout(() => setState('idle'), 2500);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setState('copied');
+    } catch {
+      setState('failed');
+    }
+  }
+
+  return (
+    <span className="copy-row">
+      <button type="button" className="button button-small" onClick={copy}>
+        <Icon name={state === 'copied' ? 'check' : 'copy'} />{state === 'copied' ? copiedLabel : label}
+      </button>
+      <span role="status" className={state === 'copied' ? 'copy-done' : 'hint'}>
+        {state === 'copied' && `${copiedLabel} to your clipboard.`}
+        {state === 'failed' && 'Copying is blocked here. Select the address and copy it by hand.'}
+      </span>
     </span>
   );
 }

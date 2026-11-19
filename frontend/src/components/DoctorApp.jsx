@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
-import { Avatar, ErrorMessage, Icon, LiveBadge, Loading, ScreenHeading } from './common.jsx';
+import { chipCounts, filterPatients } from '../lib/filters.js';
+import { Avatar, ErrorMessage, FilterChips, Icon, LiveBadge, Loading, ScreenHeading, SearchField } from './common.jsx';
 import { MessageInbox } from './MessageInbox.jsx';
 import { PatientDetail } from './PatientDetail.jsx';
 
@@ -49,6 +50,8 @@ export function DoctorApp() {
   const { api } = useAuth();
   const { patients, error, retry } = usePatients(api);
   const [selectedId, setSelectedId] = useState(null);
+  const [rosterChip, setRosterChip] = useState('all');
+  const [rosterQuery, setRosterQuery] = useState('');
   const selected = patients?.find(patient => patient.id === selectedId) ?? null;
 
   if (selectedId) {
@@ -63,6 +66,9 @@ export function DoctorApp() {
   }
 
   const liveCount = patients?.filter(patient => patient.active_session_id).length ?? 0;
+  const searched = filterPatients(patients ?? [], { query: rosterQuery });
+  const shown = filterPatients(searched, { chip: rosterChip });
+  const counts = chipCounts(searched, ['all', 'live'], (items, chip) => filterPatients(items, { chip }));
 
   return (
     <>
@@ -99,9 +105,29 @@ export function DoctorApp() {
           {!patients && !error && <Loading label="Loading your patients…" />}
           {patients?.length === 0 && <p className="empty">No patients are assigned to you yet.</p>}
           {patients?.length > 0 && (
+            <div className="toolbar">
+              <SearchField id="roster-search" label="Search your patients" placeholder="Search by name or email" value={rosterQuery} onChange={setRosterQuery} />
+              <FilterChips
+                label="Show patients"
+                value={rosterChip}
+                onChange={setRosterChip}
+                counts={counts}
+                options={[{ id: 'all', label: 'All' }, { id: 'live', label: 'Live now', icon: 'pulse' }]}
+              />
+            </div>
+          )}
+          {patients?.length > 0 && (
+            <p className="result-note" role="status">Showing {shown.length} of {patients.length} patients.</p>
+          )}
+          {patients?.length > 0 && shown.length === 0 && (
+            <p className="empty">
+              No patients match. <button type="button" className="button button-link" onClick={() => { setRosterChip('all'); setRosterQuery(''); }}>Clear search and filters</button>
+            </p>
+          )}
+          {shown.length > 0 && (
             <ul className="list roster" aria-label="Assigned patients">
               <li className="roster-head" aria-hidden="true"><span>Patient</span><span>Status</span><span /></li>
-              {patients.map(patient => (
+              {shown.map(patient => (
                 <li key={patient.id} className={patient.active_session_id ? 'roster-row roster-row-live' : 'roster-row'}>
                   <span className="person">
                     <Avatar name={patient.name} />
