@@ -104,7 +104,7 @@ test('skip-reading', async t => {
   assert.equal(skipped.status, 'active');
   const wrong = (await post(`/api/workouts/${w.id}/skip-reading`, user.token, undefined, 409)).data;
   assert.equal(wrong.error.phase, 'counting');
-  f.db.prepare("UPDATE workouts SET phase = 'after_bpm' WHERE id = ?").run(w.id);
+  f.db && await f.db.run("UPDATE workouts SET phase = 'after_bpm' WHERE id = ?", w.id);
   const done = (await post(`/api/workouts/${w.id}/skip-reading`, user.token)).data.workout;
   assert.equal(done.after_skipped, 1);
   assert.equal(done.phase, 'done');
@@ -117,15 +117,15 @@ test('skip-reading', async t => {
   assert.equal(cancelled.status, 'incomplete');
   assert.equal(cancelled.phase, 'done');
   assert.equal((await post(`/api/workouts/${w2.id}/cancel`, user.token)).data.workout.status, 'incomplete');
-  f.db.prepare("UPDATE workouts SET status = 'completed' WHERE id = ?").run(w2.id);
+  await f.db.run("UPDATE workouts SET status = 'completed' WHERE id = ?", w2.id);
   await post(`/api/workouts/${w2.id}/cancel`, user.token, undefined, 409);
 });
 
 test('portal', async t => {
   const { f, user } = await setup(t);
   const staff = await f.staff();
-  const count = () => f.db.prepare('SELECT COUNT(*) AS n FROM auth_sessions').get().n;
-  const before = count();
+  const count = async () => (await f.db.get('SELECT COUNT(*) AS n FROM auth_sessions')).n;
+  const before = await count();
   const login = async (email, portal, status) => (await f.request('/api/auth/login', {
     method: 'POST', body: { email, password, portal }, status,
   })).data;
@@ -133,7 +133,7 @@ test('portal', async t => {
     'This is a patient account. Use the patient sign-in.');
   assert.equal((await login('staff@example.com', 'patient', 403)).error.message,
     'This is a doctor account. Use the doctor sign-in.');
-  assert.equal(count(), before);
+  assert.equal(await count(), before);
   await login('participant@example.com', 'bogus', 400);
   assert.ok((await login('participant@example.com', 'patient', 200)).token);
   assert.ok((await login('staff@example.com', 'doctor', 200)).token);
@@ -197,7 +197,7 @@ test('kind filter', async t => {
   assert.deepEqual(await ids('?kind=reps'), [w.id]);
   assert.equal((await ids('')).length, 2);
   await f.request('/api/workouts?kind=other', { token: user.token, status: 400 });
-  f.db.prepare("UPDATE workouts SET status = 'completed', repetitions = 5, elapsed_seconds = 9 WHERE id = ?").run(w.id);
+  await f.db.run("UPDATE workouts SET status = 'completed', repetitions = 5, elapsed_seconds = 9 WHERE id = ?", w.id);
   const reps = (await f.request('/api/progress?kind=reps', { token: user.token })).data;
   assert.equal(reps.completed_workouts, 1);
   assert.equal(reps.daily[0].date, new Date().toISOString().slice(0, 10));

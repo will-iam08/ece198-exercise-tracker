@@ -37,15 +37,15 @@ test('the inbound-email webhook needs the secret, matches patients case-insensit
     method: 'POST', body, status, headers: key === null ? {} : { 'X-Bot-Secret': key },
   });
   const email = { from: 'Pat Smith <PAT.Smith@Example.COM>', subject: 'Sore wrist', text: 'My wrist hurts after the curls.\r\n' };
-  const count = () => f.db.prepare('SELECT COUNT(*) AS n FROM patient_messages').get().n;
+  const count = async () => (await f.db.get('SELECT COUNT(*) AS n FROM patient_messages')).n;
 
   await post(email, { key: null, status: 401 });
   await post(email, { key: 'wrong-secret-0123456789', status: 401 });
-  assert.equal(count(), 0);
+  assert.equal(await count(), 0);
 
   const stored = (await post(email)).data;
   assert.equal(stored.stored, true);
-  const row = f.db.prepare('SELECT * FROM patient_messages WHERE id = ?').get(stored.message_id);
+  const row = await f.db.get('SELECT * FROM patient_messages WHERE id = ?', stored.message_id);
   assert.equal(row.participant_id, pat.user.id);
   assert.equal(row.sender_email, 'pat.smith@example.com');
   assert.equal(row.subject, 'Sore wrist');
@@ -56,14 +56,14 @@ test('the inbound-email webhook needs the secret, matches patients case-insensit
   assert.deepEqual((await post({ ...email, from: 'Stranger <stranger@example.com>' }, { status: 202 })).data, { stored: false });
   assert.deepEqual((await post({ ...email, from: 'doc@example.com' }, { status: 202 })).data, { stored: false });
   assert.deepEqual((await post({ ...email, from: 'nonsense' }, { status: 202 })).data, { stored: false });
-  assert.equal(count(), 1);
+  assert.equal(await count(), 1);
 
   await post({ ...email, text: '   ' }, { status: 400 });
   await post({ from: email.from }, { status: 400 });
   await post({ ...email, extra: 1 }, { status: 400 });
   // Long emails are cut to the stored length; a missing subject gets a placeholder.
   const long = (await post({ from: 'pat.smith@example.com', text: 'y'.repeat(9000) })).data;
-  const longRow = f.db.prepare('SELECT * FROM patient_messages WHERE id = ?').get(long.message_id);
+  const longRow = await f.db.get('SELECT * FROM patient_messages WHERE id = ?', long.message_id);
   assert.equal(longRow.body.length, 4000);
   assert.equal(longRow.subject, '(no subject)');
 
@@ -125,16 +125,16 @@ test('the webhook accepts CloudMailin emails with a Bearer secret', async t => {
   const post = (body, { auth = `Bearer ${secret}`, status = 201 } = {}) => f.request('/api/bot/inbound-email', {
     method: 'POST', body, status, headers: auth === null ? {} : { Authorization: auth },
   });
-  const count = () => f.db.prepare('SELECT COUNT(*) AS n FROM patient_messages').get().n;
+  const count = async () => (await f.db.get('SELECT COUNT(*) AS n FROM patient_messages')).n;
 
   await post(cloudMailinEmail(), { auth: null, status: 401 });
   await post(cloudMailinEmail(), { auth: 'Bearer wrong-secret-0123456789', status: 401 });
   await post(cloudMailinEmail(), { auth: secret, status: 401 });
-  assert.equal(count(), 0);
+  assert.equal(await count(), 0);
 
   const stored = (await post(cloudMailinEmail())).data;
   assert.equal(stored.stored, true);
-  const row = f.db.prepare('SELECT * FROM patient_messages WHERE id = ?').get(stored.message_id);
+  const row = await f.db.get('SELECT * FROM patient_messages WHERE id = ?', stored.message_id);
   assert.equal(row.participant_id, pat.user.id);
   assert.equal(row.sender_email, 'pat.smith@example.com');
   assert.equal(row.subject, 'Question about rows');
@@ -148,7 +148,7 @@ test('the webhook accepts CloudMailin emails with a Bearer secret', async t => {
   // Extra CloudMailin fields (attachments, reply_plain, ...) are fine; a large email still fits.
   const big = cloudMailinEmail({ attachments: [{ file_name: 'scan.pdf', content_type: 'application/pdf', size: 600000, content: 'A'.repeat(600000) }] });
   assert.equal((await post(big)).data.stored, true);
-  assert.equal(count(), 2);
+  assert.equal(await count(), 2);
 
   // The doctor sees the email in the inbox.
   const inbox = (await f.request('/api/doctor/messages', { token: doctor.token })).data;
@@ -196,7 +196,7 @@ test('the webhook accepts CloudMailin emails with the secret in the target URL',
   const post = (query, body, { status = 201, headers = {} } = {}) => f.request(`/api/bot/inbound-email${query}`, {
     method: 'POST', body, status, headers,
   });
-  const count = () => f.db.prepare('SELECT COUNT(*) AS n FROM patient_messages').get().n;
+  const count = async () => (await f.db.get('SELECT COUNT(*) AS n FROM patient_messages')).n;
   const q = value => `?secret=${encodeURIComponent(value)}`;
 
   // Missing, wrong, empty and repeated query secrets are refused.
@@ -208,7 +208,7 @@ test('the webhook accepts CloudMailin emails with the secret in the target URL',
   // A wrong header is not rescued by a correct query secret.
   await post(q(secret), cloudMailinEmail(), { status: 401, headers: { 'X-Bot-Secret': 'wrong-secret-0123456789' } });
   await post(q(secret), cloudMailinEmail(), { status: 401, headers: { Authorization: 'Bearer wrong-secret-0123456789' } });
-  assert.equal(count(), 0);
+  assert.equal(await count(), 0);
 
   // The rejection log says what arrived without ever printing the secret.
   assert.equal(warnings.length, 7);
@@ -218,7 +218,7 @@ test('the webhook accepts CloudMailin emails with the secret in the target URL',
 
   const stored = (await post(q(secret), cloudMailinEmail())).data;
   assert.equal(stored.stored, true);
-  const row = f.db.prepare('SELECT * FROM patient_messages WHERE id = ?').get(stored.message_id);
+  const row = await f.db.get('SELECT * FROM patient_messages WHERE id = ?', stored.message_id);
   assert.equal(row.participant_id, pat.user.id);
   assert.equal(row.subject, 'Question about rows');
   assert.equal(row.body, 'Is 120 bpm after the row okay?');
@@ -230,7 +230,7 @@ test('the webhook accepts CloudMailin emails with the secret in the target URL',
 
   // Unknown senders are accepted but not stored, so CloudMailin does not retry.
   assert.deepEqual((await post(q(secret), cloudMailinEmail({ from: 'Stranger <stranger@example.com>' }), { status: 202 })).data, { stored: false });
-  assert.equal(count(), 3);
+  assert.equal(await count(), 3);
   assert.equal(warnings.length, 7);
   assert.equal((await f.request('/api/doctor/messages', { token: doctor.token })).data.messages.length, 3);
 });
@@ -260,7 +260,7 @@ test('patient questions reach only the assigned doctors, who can mark them read 
   assert.equal(first.source, 'portal');
   assert.equal(first.sender_email, 'alice@example.com');
   assert.equal(first.is_read, false);
-  ingestEmail(f.db, { from: 'Alice <ALICE@example.com>', subject: 'Second', text: 'Also, my heart rate was high.' }, new Date(Date.now() + 1000).toISOString());
+  await ingestEmail(f.db, { from: 'Alice <ALICE@example.com>', subject: 'Second', text: 'Also, my heart rate was high.' }, new Date(Date.now() + 1000).toISOString());
   await f.request('/api/messages', { method: 'POST', token: bob.token, body: { body: 'Bob here' }, status: 201 });
 
   const inbox = (await f.request('/api/doctor/messages', { token: doctor.token })).data;
@@ -299,7 +299,7 @@ test('patient questions reach only the assigned doctors, who can mark them read 
   assert.equal((await f.request('/api/admin/overview', { token: admin.token })).data.stats.unread_messages, 2);
 
   // After unassignment the doctor no longer sees or changes the patient's messages.
-  f.db.prepare('DELETE FROM staff_participants WHERE staff_id = ?').run(doctor.id);
+  await f.db.run('DELETE FROM staff_participants WHERE staff_id = ?', doctor.id);
   assert.deepEqual((await f.request('/api/doctor/messages', { token: doctor.token })).data, { messages: [], unread_count: 0 });
   await patch(doctor.token, { is_read: true }, 404);
 });
@@ -325,9 +325,9 @@ function fakeMailbox(messages) {
 }
 
 test('the IMAP poller stores mail from patients and marks every unread email as read', async t => {
-  const db = createDatabase(':memory:');
+  const db = await createDatabase(':memory:');
   t.after(() => db.close());
-  db.prepare("INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES ('p1','Pat','pat@example.com','x','participant','2026-01-01')").run();
+  await db.run("INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES ('p1','Pat','pat@example.com','x','participant','2026-01-01')");
   const client = fakeMailbox([
     {
       uid: 7, envelope: { from: [{ name: 'Pat', address: 'PAT@example.com' }], subject: 'Plain' },
@@ -350,7 +350,7 @@ test('the IMAP poller stores mail from patients and marks every unread email as 
   assert.deepEqual(counts, { stored: 2, ignored: 1 });
   assert.deepEqual(client.seen.map(([uid]) => uid), ['7', '8', '9']);
   assert.deepEqual(client.released, ['INBOX']);
-  const rows = db.prepare('SELECT subject, body, source FROM patient_messages ORDER BY subject').all().map(row => ({ ...row }));
+  const rows = (await db.all('SELECT subject, body, source FROM patient_messages ORDER BY subject')).map(row => ({ ...row }));
   assert.deepEqual(rows, [
     { subject: 'Html only', body: 'Line one\nFish & chips', source: 'email_bot' },
     { subject: 'Plain', body: 'Hello from email.', source: 'email_bot' },

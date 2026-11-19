@@ -11,6 +11,13 @@ services:
         value: 24.11.0
       - key: HOST
         value: 0.0.0.0
+      # Optional Turso (libSQL) persistent database. When left blank on Render Free,
+      # the server falls back to local SQLite on ephemeral disk. Set both values in
+      # the Render Dashboard Environment tab to persist records across deploys.
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
       # Passwords for the demo accounts created by seed-demo.js. Render generates
       # a random value for each one that does not exist yet; read them on the
       # service's Environment page. Without them no demo accounts are created.

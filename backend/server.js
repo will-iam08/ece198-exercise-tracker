@@ -22,9 +22,10 @@ const bot = {
 };
 if (bot.webhookSecret && bot.webhookSecret.length < 16) throw new Error('BOT_WEBHOOK_SECRET must contain at least 16 characters');
 
-const db = createDatabase();
+const db = await createDatabase();
 const server = createApp({ db, corsOrigin: corsOrigins, bot, staticDir }).listen(port, host, () => {
   console.log(`ECE 198 backend listening on http://${host}:${port}`);
+  console.log(`Database storage: ${db.isRemote ? `Turso (${db.url})` : 'local SQLite'}`);
   console.log(`Browser origins allowed: ${corsOrigins.join(', ')}`);
   if (bot.webhookSecret) console.log('Email bot webhook enabled at POST /api/bot/inbound-email');
   if (imap) console.log(`Email bot checking ${imap.user} on ${imap.host} every ${imap.intervalMs / 1000} s`);
@@ -33,12 +34,12 @@ const poller = imap ? startImapPoller(db, imap) : null;
 server.on('error', error => {
   console.error(`Server failed: ${error.message}`);
   poller?.stop();
-  db.close();
+  void db.close();
   process.exitCode = 1;
 });
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
     poller?.stop();
-    server.close(() => db.close());
+    server.close(() => { void db.close(); });
   });
 }

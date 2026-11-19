@@ -12,6 +12,7 @@
     "manage": "node --env-file-if-exists=.env manage.js"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "express": "^5.1.0"
   },
   "optionalDependencies": {

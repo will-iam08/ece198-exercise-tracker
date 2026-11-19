@@ -16,11 +16,11 @@ the website tests and the host-side firmware tests:
 - retry safety (a repeated upload returns `duplicate:true` and changes nothing), phases, skip and stop rules;
 - the firmware's check-in, exercise-flow and upload-queue logic with synthetic data on a PC.
 
-**Not tested on hardware** (do these in part B and expect to adjust):
+**Not tested on hardware** (expect to verify on a physical device):
 
-- real Wi-Fi from the ESP32 to the laptop;
-- the MPU6050 rep counting, especially the Shoulder Press and Back Row thresholds;
-- the MAX30102 heart-rate check-in (finger threshold, interval agreement, time limits);
+- real Bluetooth Low Energy link between the ESP32 and a physical iPhone running the Motion Log app;
+- real HTTPS uploads from the physical Motion Log iPhone app to the backend;
+- the MPU6050 rep counting thresholds and MAX30102 heart-rate check-in on the sensor;
 - the OLED screens and the sensor mounting.
 
 **Not tested against real services:** the IMAP poller of the email bot (its logic is tested with a stand-in
@@ -88,14 +88,18 @@ The numbers (targets 5 and 4 reps) keep the demo short; any target from 1 to 50 
 Open `http://localhost:5173/`, choose **Create an account**, and register `patient@example.com` with a password of
 12 or more characters.
 
-Pass: you are signed in and see the tabs Session, History, Progress and My devices.
+Pass: you are signed in and see the four tabs: **Overview**, **History**, **Progress** and **Messages** (the Overview tab shows the **Record exercises with the Motion Log app** card with your copyable server URL).
 
-### Step 2: add a device
+### Step 2: sync from the Motion Log app (or simulate an app upload)
 
-Open **My devices**, add a device named `Demo ESP32`.
+In the **Motion Log** iPhone app (`mobile/`):
 
-Pass: a device token is shown once. Copy it (**Copy token**) and keep it for the next steps, then press **I have
-saved it — hide token**. The token cannot be shown again; if you lose it, add the device again.
+1. Open **My tracker** and tap **Sign in**, then enter the server URL from your **Overview** card along with your patient email and password (stored in the iPhone Keychain for 24 hours; Bluetooth workouts also work offline and queue locally).
+2. Connect your ESP32 over Bluetooth (`Scan for tracker`).
+3. Choose **Biceps curl** (`1`), **Shoulder press** (`3`), or **Back row** (`4`), set **Target** (`1–50`, pre-filled from your care plan), and tap **Start workout**.
+4. Complete the before/after heart-rate check-ins and reps (or **Skip heart-rate check** / **End workout**), and see the set upload to **Overview** and **History**.
+
+Pass (simulated HTTP without an iPhone): signing in via `POST /api/auth/login` (`portal: "patient"`) and posting to `POST /api/app/sets` with a UUID `client_id` returns `201`, and re-sending the exact same `client_id` returns `200 {"duplicate": true}` without creating a second workout row. (The legacy Wi-Fi `fake-device` CLI helper in `frontend/` also still works directly against the legacy `/api/device/*` routes if you need a Wi-Fi device simulation.)
 
 ### Step 3: start a session
 
@@ -307,9 +311,8 @@ are refused with a message next to the field. The session tables gain a **Care p
 badge and words, whether each exercise **Met** the prescribed reps (or was **Below**) and whether the heart rate
 after was **In range**, **Above** or **Below** the target.
 
-Sign in as the patient. Pass: the Session tab shows a **From Your Doctor** card with the note, the reps per exercise
-and the target range; choosing **Arm Curl** fills **Target reps** with 5, and each exercise card shows "Doctor's
-target". History shows the same Care plan column.
+Sign in as the patient. Pass: the **Overview** tab shows a **From Your Doctor** card with the note, the reps per exercise
+and the target range, and synced rows in **History** include the Care plan badges (**Met**/**Below**, **In range**/**Above**/**Below**). Signing in inside the Motion Log iPhone app loads that same care plan via `GET /api/plan` and pre-fills the rep target stepper (1–50).
 
 ### Step 14: a patient question in the doctor's inbox
 

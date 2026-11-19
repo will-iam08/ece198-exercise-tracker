@@ -42,17 +42,17 @@ function cleanBody(text) {
 // Stores one email. Returns { stored: true, message } for a registered
 // patient, or { stored: false, reason } when the sender is unknown or the
 // email has no text. Nothing is stored for unknown senders.
-export function ingestEmail(db, { from, subject, text }, now = new Date().toISOString()) {
+export async function ingestEmail(db, { from, subject, text }, now = new Date().toISOString()) {
   const sender = parseAddress(from);
   if (!sender) return { stored: false, reason: 'invalid_sender' };
-  const patient = db.prepare("SELECT id FROM users WHERE email = ? AND role = 'participant'").get(sender.email);
+  const patient = await db.get("SELECT id FROM users WHERE email = ? AND role = 'participant'", sender.email);
   if (!patient) return { stored: false, reason: 'unknown_sender' };
   const body = cleanBody(text);
   if (!body) return { stored: false, reason: 'empty_body' };
   const id = randomUUID();
-  db.prepare(`INSERT INTO patient_messages (id, participant_id, sender_email, subject, body, source, received_at)
-    VALUES (?, ?, ?, ?, ?, 'email_bot', ?)`).run(id, patient.id, sender.email, cleanSubject(subject), body, now);
-  return { stored: true, message: db.prepare('SELECT * FROM patient_messages WHERE id = ?').get(id) };
+  await db.run(`INSERT INTO patient_messages (id, participant_id, sender_email, subject, body, source, received_at)
+    VALUES (?, ?, ?, ?, ?, 'email_bot', ?)`, id, patient.id, sender.email, cleanSubject(subject), body, now);
+  return { stored: true, message: await db.get('SELECT * FROM patient_messages WHERE id = ?', id) };
 }
 
 // Compares two secrets in constant time (hashing first makes the lengths equal).
@@ -123,7 +123,7 @@ export function fromCloudMailin(body) {
 }
 
 export function registerBotRoutes(app, { db, webhookSecret }) {
-  app.post('/api/bot/inbound-email', (req, res) => {
+  app.post('/api/bot/inbound-email', async (req, res) => {
     // Without BOT_WEBHOOK_SECRET the route does not exist.
     if (!webhookSecret) fail(404, 'Route not found');
     if (!secretMatches(requestSecret(req), webhookSecret)) {
@@ -143,7 +143,7 @@ export function registerBotRoutes(app, { db, webhookSecret }) {
       if (req.body.subject !== undefined && typeof req.body.subject !== 'string') fail(400, 'subject must be a string');
       email = req.body;
     }
-    const result = ingestEmail(db, email);
+    const result = await ingestEmail(db, email);
     if (result.stored) return res.status(201).json({ stored: true, message_id: result.message.id });
     if (result.reason === 'empty_body') fail(400, 'text must contain the message');
     // Unknown and unreadable senders are accepted but not stored, so the mail
@@ -220,7 +220,7 @@ export async function pollMailbox(client, { mailbox = 'INBOX', ingest, maxBytes 
         text = await readStream(content, maxBytes);
         if (found.html) text = htmlToText(text);
       }
-      const result = ingest({ from, subject: message.envelope?.subject ?? '', text });
+      const result = await ingest({ from, subject: message.envelope?.subject ?? '', text });
       counts[result.stored ? 'stored' : 'ignored'] += 1;
       await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
     }

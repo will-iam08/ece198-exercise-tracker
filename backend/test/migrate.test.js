@@ -4,7 +4,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createDatabase } from '../db.js';
+import { createDatabase, wrapLocal } from '../db.js';
 import { LATEST_VERSION, migrate } from '../migrations.js';
 
 const now = '2026-01-01T00:00:00.000Z';
@@ -44,21 +44,21 @@ async function seedVersion1(path) {
   return rows;
 }
 
-const count = (db, table) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
-const version = db => db.prepare('PRAGMA user_version').get().user_version;
+const count = async (db, table) => (await db.get(`SELECT COUNT(*) AS n FROM ${table}`)).n;
+const version = async db => (await db.get('PRAGMA user_version')).user_version;
 
 test('migrates a version-1 database without losing data', async t => {
   const path = await tempPath(t);
   const before = await seedVersion1(path);
-  const db = createDatabase(path);
+  const db = await createDatabase(path);
   t.after(() => db.close());
 
-  assert.equal(version(db), 3);
-  assert.equal(LATEST_VERSION, 3);
-  assert.equal(count(db, 'users'), 2);
-  assert.equal(count(db, 'workouts'), 3);
-  assert.equal(count(db, 'workout_readings'), 5);
-  const after = db.prepare('SELECT * FROM workouts ORDER BY id').all();
+  assert.equal(await version(db), LATEST_VERSION);
+  assert.equal(LATEST_VERSION, 4);
+  assert.equal(await count(db, 'users'), 2);
+  assert.equal(await count(db, 'workouts'), 3);
+  assert.equal(await count(db, 'workout_readings'), 5);
+  const after = await db.all('SELECT * FROM workouts ORDER BY id');
   for (const [i, old] of before.entries()) {
     assert.equal(after[i].kind, 'timed');
     for (const key of Object.keys(old)) assert.equal(after[i][key], old[key], `${old.id}.${key}`);
@@ -66,174 +66,229 @@ test('migrates a version-1 database without losing data', async t => {
     assert.equal(after[i].before_skipped, 0);
     assert.equal(after[i].after_skipped, 0);
   }
-  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-  assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
-  const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map(r => r.name);
+  assert.deepEqual(await db.all('PRAGMA foreign_key_check'), []);
+  assert.equal((await db.get('PRAGMA foreign_keys')).foreign_keys, 1);
+  const indexes = (await db.all("SELECT name FROM sqlite_master WHERE type = 'index'")).map(r => r.name);
   for (const name of ['idx_workouts_device_open', 'idx_workouts_participant_created', 'idx_sessions_active', 'idx_workouts_session']) {
     assert.ok(indexes.includes(name), name);
   }
 });
 
-test('fresh database lands on the latest version', () => {
-  const db = createDatabase(':memory:');
+test('fresh database lands on the latest version', async () => {
+  const db = await createDatabase(':memory:');
   try {
-    assert.equal(version(db), LATEST_VERSION);
-    assert.equal(count(db, 'patient_plans'), 0);
-    assert.equal(count(db, 'patient_messages'), 0);
-    assert.equal(count(db, 'workouts'), 0);
-    assert.equal(count(db, 'exercise_sessions'), 0);
-    assert.equal(count(db, 'workout_events'), 0);
+    assert.equal(await version(db), LATEST_VERSION);
+    assert.equal(await count(db, 'patient_plans'), 0);
+    assert.equal(await count(db, 'patient_messages'), 0);
+    assert.equal(await count(db, 'workouts'), 0);
+    assert.equal(await count(db, 'exercise_sessions'), 0);
+    assert.equal(await count(db, 'workout_events'), 0);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
 test('reopening is a no-op', async t => {
   const path = await tempPath(t);
   await seedVersion1(path);
-  createDatabase(path).close();
-  const db = createDatabase(path);
+  await (await createDatabase(path)).close();
+  const db = await createDatabase(path);
   t.after(() => db.close());
-  assert.equal(version(db), LATEST_VERSION);
-  assert.equal(count(db, 'workouts'), 3);
-  assert.equal(count(db, 'workout_readings'), 5);
+  assert.equal(await version(db), LATEST_VERSION);
+  assert.equal(await count(db, 'workouts'), 3);
+  assert.equal(await count(db, 'workout_readings'), 5);
 });
 
 test('constraints', async t => {
   const path = await tempPath(t);
   await seedVersion1(path);
-  const db = createDatabase(path);
+  const db = await createDatabase(path);
   t.after(() => db.close());
-  db.prepare("UPDATE workouts SET status = 'cancelled' WHERE status = 'pending'").run();
-  db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s1', 'p1', 'd1', 'active', ?, ?)").run(now, now);
-  const insert = (id, sessionId, reps) => db.prepare(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
+  await db.run("UPDATE workouts SET status = 'cancelled' WHERE status = 'pending'");
+  await db.run("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s1', 'p1', 'd1', 'active', ?, ?)", now, now);
+  const insert = (id, sessionId, reps) => db.run(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
     session_id, exercise_id, target_reps, phase, status, created_at, updated_at)
-    VALUES (?, 'p1', 'd1', 'Arm Curl', 'reps', ?, 'arm_curl', ?, 'before_bpm', 'pending', ?, ?)`).run(id, sessionId, reps, now, now);
+    VALUES (?, 'p1', 'd1', 'Arm Curl', 'reps', ?, 'arm_curl', ?, 'before_bpm', 'pending', ?, ?)`, id, sessionId, reps, now, now);
 
-  assert.throws(() => insert('r0', null, 10), /CHECK constraint/i);
-  assert.throws(() => insert('r1', 's1', 51), /CHECK constraint/i);
-  assert.throws(() => insert('r2', 's1', 0), /CHECK constraint/i);
-  insert('r3', 's1', 50);
-  assert.throws(() => db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s2', 'p1', 'd1', 'active', ?, ?)").run(now, now), /UNIQUE constraint/i);
-  db.prepare("UPDATE exercise_sessions SET status = 'ended', ended_at = ? WHERE id = 's1'").run(now);
-  db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s2', 'p1', 'd1', 'active', ?, ?)").run(now, now);
+  await assert.rejects(insert('r0', null, 10), /CHECK constraint/i);
+  await assert.rejects(insert('r1', 's1', 51), /CHECK constraint/i);
+  await assert.rejects(insert('r2', 's1', 0), /CHECK constraint/i);
+  await insert('r3', 's1', 50);
+  await assert.rejects(db.run("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s2', 'p1', 'd1', 'active', ?, ?)", now, now), /UNIQUE constraint/i);
+  await db.run("UPDATE exercise_sessions SET status = 'ended', ended_at = ? WHERE id = 's1'", now);
+  await db.run("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s2', 'p1', 'd1', 'active', ?, ?)", now, now);
 });
 
 test('workout CHECK rejects NULL required fields', async t => {
   const path = await tempPath(t);
   await seedVersion1(path);
-  const db = createDatabase(path);
+  const db = await createDatabase(path);
   t.after(() => db.close());
-  db.prepare("UPDATE workouts SET status = 'cancelled' WHERE status = 'pending'").run();
-  db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s1', 'p1', 'd1', 'active', ?, ?)").run(now, now);
-  const reps = (exerciseId, targetReps, phase) => db.prepare(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
+  await db.run("UPDATE workouts SET status = 'cancelled' WHERE status = 'pending'");
+  await db.run("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('s1', 'p1', 'd1', 'active', ?, ?)", now, now);
+  const reps = (exerciseId, targetReps, phase) => db.run(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
     session_id, exercise_id, target_reps, phase, status, created_at, updated_at)
-    VALUES ('n1', 'p1', 'd1', 'Arm Curl', 'reps', 's1', ?, ?, ?, 'pending', ?, ?)`).run(exerciseId, targetReps, phase, now, now);
-  assert.throws(() => reps('arm_curl', null, 'before_bpm'), /CHECK constraint/i);
-  assert.throws(() => reps(null, 10, 'before_bpm'), /CHECK constraint/i);
-  assert.throws(() => reps('arm_curl', 10, null), /CHECK constraint/i);
-  assert.throws(() => db.prepare(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
+    VALUES ('n1', 'p1', 'd1', 'Arm Curl', 'reps', 's1', ?, ?, ?, 'pending', ?, ?)`, exerciseId, targetReps, phase, now, now);
+  await assert.rejects(reps('arm_curl', null, 'before_bpm'), /CHECK constraint/i);
+  await assert.rejects(reps(null, 10, 'before_bpm'), /CHECK constraint/i);
+  await assert.rejects(reps('arm_curl', 10, null), /CHECK constraint/i);
+  await assert.rejects(db.run(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind,
     target_duration_seconds, status, created_at, updated_at)
-    VALUES ('n2', 'p1', 'd1', 'Curl', 'timed', NULL, 'pending', ?, ?)`).run(now, now), /CHECK constraint/i);
-  reps('arm_curl', 10, 'before_bpm');
+    VALUES ('n2', 'p1', 'd1', 'Curl', 'timed', NULL, 'pending', ?, ?)`, now, now), /CHECK constraint/i);
+  await reps('arm_curl', 10, 'before_bpm');
 });
 
 // A database left at version 2 (sessions and rep exercises, no admin role).
 async function seedVersion2(path) {
   await seedVersion1(path);
-  const db = new DatabaseSync(path);
-  db.exec('PRAGMA foreign_keys = ON;');
-  migrate(db, 2);
-  assert.equal(version(db), 2);
-  db.prepare("INSERT INTO staff_participants (staff_id, participant_id) VALUES ('s1', 'p1')").run();
-  db.prepare("INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES ('t1', 'p1', ?, '2999-01-01T00:00:00.000Z')").run(now);
-  db.prepare("UPDATE workouts SET status = 'cancelled' WHERE status = 'pending'").run();
-  db.prepare("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('es1', 'p1', 'd1', 'ended', ?, ?)").run(now, now);
-  db.prepare(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind, session_id, exercise_id, target_reps, phase,
+  const raw = new DatabaseSync(path);
+  raw.exec('PRAGMA foreign_keys = ON;');
+  const db = wrapLocal(raw, path);
+  await migrate(db, 2);
+  assert.equal(await version(db), 2);
+  await db.run("INSERT INTO staff_participants (staff_id, participant_id) VALUES ('s1', 'p1')");
+  await db.run("INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES ('t1', 'p1', ?, '2999-01-01T00:00:00.000Z')", now);
+  await db.run("UPDATE workouts SET status = 'cancelled' WHERE status = 'pending'");
+  await db.run("INSERT INTO exercise_sessions (id, participant_id, device_id, status, created_at, updated_at) VALUES ('es1', 'p1', 'd1', 'ended', ?, ?)", now, now);
+  await db.run(`INSERT INTO workouts (id, participant_id, device_id, exercise_name, kind, session_id, exercise_id, target_reps, phase,
     status, repetitions, before_bpm, after_bpm, created_at, updated_at)
-    VALUES ('r1', 'p1', 'd1', 'Arm Curl', 'reps', 'es1', 'arm_curl', 10, 'done', 'completed', 10, 72, 96, ?, ?)`).run(now, now);
-  db.prepare("INSERT INTO workout_events (workout_id, sequence, type, bpm, received_at) VALUES ('r1', 1, 'before_bpm', 72, ?)").run(now);
-  db.close();
+    VALUES ('r1', 'p1', 'd1', 'Arm Curl', 'reps', 'es1', 'arm_curl', 10, 'done', 'completed', 10, 72, 96, ?, ?)`, now, now);
+  await db.run("INSERT INTO workout_events (workout_id, sequence, type, bpm, received_at) VALUES ('r1', 1, 'before_bpm', 72, ?)", now);
+  await db.close();
 }
 
 test('version 3 upgrades a version-2 database, keeps every row and adds the admin role', async t => {
   const path = await tempPath(t);
   await seedVersion2(path);
-  const db = createDatabase(path);
+  const db = await createDatabase(path);
   t.after(() => db.close());
 
-  assert.equal(version(db), 3);
-  assert.deepEqual(db.prepare('SELECT id, role FROM users ORDER BY id').all().map(row => ({ ...row })),
+  assert.equal(await version(db), LATEST_VERSION);
+  assert.deepEqual((await db.all('SELECT id, role FROM users ORDER BY id')).map(row => ({ ...row })),
     [{ id: 'p1', role: 'participant' }, { id: 's1', role: 'staff' }]);
-  assert.equal(count(db, 'staff_participants'), 1);
-  assert.equal(count(db, 'auth_sessions'), 1);
-  assert.equal(count(db, 'devices'), 1);
-  assert.equal(count(db, 'exercise_sessions'), 1);
-  assert.equal(count(db, 'workouts'), 4);
-  assert.equal(count(db, 'workout_readings'), 5);
-  assert.equal(count(db, 'workout_events'), 1);
-  assert.equal(db.prepare("SELECT after_bpm FROM workouts WHERE id = 'r1'").get().after_bpm, 96);
-  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-  assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
-  const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map(r => r.name);
+  assert.equal(await count(db, 'staff_participants'), 1);
+  assert.equal(await count(db, 'auth_sessions'), 1);
+  assert.equal(await count(db, 'devices'), 1);
+  assert.equal(await count(db, 'exercise_sessions'), 1);
+  assert.equal(await count(db, 'workouts'), 4);
+  assert.equal(await count(db, 'workout_readings'), 5);
+  assert.equal(await count(db, 'workout_events'), 1);
+  assert.equal((await db.get("SELECT after_bpm FROM workouts WHERE id = 'r1'")).after_bpm, 96);
+  assert.deepEqual(await db.all('PRAGMA foreign_key_check'), []);
+  assert.equal((await db.get('PRAGMA foreign_keys')).foreign_keys, 1);
+  const indexes = (await db.all("SELECT name FROM sqlite_master WHERE type = 'index'")).map(r => r.name);
   for (const name of ['idx_workouts_device_open', 'idx_sessions_active', 'idx_staff_participants_participant',
     'idx_auth_sessions_user', 'idx_patient_messages_participant']) {
     assert.ok(indexes.includes(name), name);
   }
 
-  const user = db.prepare('INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-  user.run('a1', 'Ada', 'ada@example.com', 'x', 'admin', now);
-  assert.throws(() => user.run('x1', 'X', 'x@example.com', 'x', 'owner', now), /CHECK constraint/i);
-  assert.throws(() => user.run('x2', 'X', 'PAT@example.com', 'x', 'participant', now), /UNIQUE constraint/i);
+  const user = (id, name, email, role) =>
+    db.run('INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, name, email, 'x', role, now);
+  await user('a1', 'Ada', 'ada@example.com', 'admin');
+  await assert.rejects(user('x1', 'X', 'x@example.com', 'owner'), /CHECK constraint/i);
+  await assert.rejects(user('x2', 'X', 'PAT@example.com', 'participant'), /UNIQUE constraint/i);
   // Foreign keys from the other tables still point at the rebuilt users table.
-  assert.throws(() => db.prepare("INSERT INTO devices (id, participant_id, name, token_hash, created_at) VALUES ('d2', 'nobody', 'X', 'h2', ?)").run(now), /FOREIGN KEY/i);
-  db.prepare("DELETE FROM users WHERE id = 's1'").run();
-  assert.equal(count(db, 'staff_participants'), 0);
-  db.prepare("DELETE FROM users WHERE id = 'p1'").run();
-  assert.equal(count(db, 'auth_sessions'), 0);
-  assert.equal(count(db, 'workouts'), 0);
-  assert.equal(count(db, 'workout_events'), 0);
+  await assert.rejects(db.run("INSERT INTO devices (id, participant_id, name, token_hash, created_at) VALUES ('d2', 'nobody', 'X', 'h2', ?)", now), /FOREIGN KEY/i);
+  await db.run("DELETE FROM users WHERE id = 's1'");
+  assert.equal(await count(db, 'staff_participants'), 0);
+  await db.run("DELETE FROM users WHERE id = 'p1'");
+  assert.equal(await count(db, 'auth_sessions'), 0);
+  assert.equal(await count(db, 'workouts'), 0);
+  assert.equal(await count(db, 'workout_events'), 0);
 });
 
-test('care plan and message constraints', () => {
-  const db = createDatabase(':memory:');
+test('care plan and message constraints', async () => {
+  const db = await createDatabase(':memory:');
   try {
-    const user = db.prepare('INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-    user.run('p1', 'Pat', 'pat@example.com', 'x', 'participant', now);
-    user.run('s1', 'Sam', 'sam@example.com', 'x', 'staff', now);
-    const plan = (values) => {
+    const user = (id, name, email, role) =>
+      db.run('INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, name, email, 'x', role, now);
+    await user('p1', 'Pat', 'pat@example.com', 'participant');
+    await user('s1', 'Sam', 'sam@example.com', 'staff');
+    const plan = async (values) => {
       const row = { notes: '', arm: null, min: null, max: null, ...values };
-      db.prepare(`INSERT OR REPLACE INTO patient_plans (participant_id, staff_id, notes, arm_curl_reps, target_bpm_min, target_bpm_max, updated_at)
-        VALUES ('p1', 's1', ?, ?, ?, ?, ?)`).run(row.notes, row.arm, row.min, row.max, now);
+      await db.run(`INSERT OR REPLACE INTO patient_plans (participant_id, staff_id, notes, arm_curl_reps, target_bpm_min, target_bpm_max, updated_at)
+        VALUES ('p1', 's1', ?, ?, ?, ?, ?)`, row.notes, row.arm, row.min, row.max, now);
     };
-    plan({ arm: 12, min: 60, max: 120 });
-    plan({ min: 30, max: 220 });
-    plan({ arm: 50 });
-    assert.throws(() => plan({ arm: 0 }), /CHECK constraint/i);
-    assert.throws(() => plan({ arm: 51 }), /CHECK constraint/i);
-    assert.throws(() => plan({ min: 29 }), /CHECK constraint/i);
-    assert.throws(() => plan({ max: 221 }), /CHECK constraint/i);
-    assert.throws(() => plan({ min: 120, max: 100 }), /CHECK constraint/i);
-    assert.throws(() => plan({ notes: 'x'.repeat(1001) }), /CHECK constraint/i);
-    db.prepare("DELETE FROM users WHERE id = 's1'").run();
-    assert.equal(db.prepare("SELECT staff_id FROM patient_plans WHERE participant_id = 'p1'").get().staff_id, null);
+    await plan({ arm: 12, min: 60, max: 120 });
+    await plan({ min: 30, max: 220 });
+    await plan({ arm: 50 });
+    await assert.rejects(plan({ arm: 0 }), /CHECK constraint/i);
+    await assert.rejects(plan({ arm: 51 }), /CHECK constraint/i);
+    await assert.rejects(plan({ min: 29 }), /CHECK constraint/i);
+    await assert.rejects(plan({ max: 221 }), /CHECK constraint/i);
+    await assert.rejects(plan({ min: 120, max: 100 }), /CHECK constraint/i);
+    await assert.rejects(plan({ notes: 'x'.repeat(1001) }), /CHECK constraint/i);
+    await db.run("DELETE FROM users WHERE id = 's1'");
+    assert.equal((await db.get("SELECT staff_id FROM patient_plans WHERE participant_id = 'p1'")).staff_id, null);
 
-    const message = (values) => {
+    const message = async (values) => {
       const row = { subject: 'Hi', body: 'Question', source: 'email_bot', reply: null, ...values };
-      db.prepare(`INSERT INTO patient_messages (id, participant_id, sender_email, subject, body, source, doctor_reply, received_at)
-        VALUES (?, 'p1', 'pat@example.com', ?, ?, ?, ?, ?)`).run(String(Math.random()), row.subject, row.body, row.source, row.reply, now);
+      await db.run(`INSERT INTO patient_messages (id, participant_id, sender_email, subject, body, source, doctor_reply, received_at)
+        VALUES (?, 'p1', 'pat@example.com', ?, ?, ?, ?, ?)`, String(Math.random()), row.subject, row.body, row.source, row.reply, now);
     };
-    message({});
-    message({ source: 'portal', body: 'x'.repeat(4000), reply: 'y'.repeat(4000) });
-    assert.throws(() => message({ body: '   ' }), /CHECK constraint/i);
-    assert.throws(() => message({ body: 'x'.repeat(4001) }), /CHECK constraint/i);
-    assert.throws(() => message({ subject: 'x'.repeat(201) }), /CHECK constraint/i);
-    assert.throws(() => message({ source: 'sms' }), /CHECK constraint/i);
-    assert.throws(() => message({ reply: 'y'.repeat(4001) }), /CHECK constraint/i);
-    db.prepare("DELETE FROM users WHERE id = 'p1'").run();
-    assert.equal(count(db, 'patient_messages'), 0);
-    assert.equal(count(db, 'patient_plans'), 0);
+    await message({});
+    await message({ source: 'portal', body: 'x'.repeat(4000), reply: 'y'.repeat(4000) });
+    await assert.rejects(message({ body: '   ' }), /CHECK constraint/i);
+    await assert.rejects(message({ body: 'x'.repeat(4001) }), /CHECK constraint/i);
+    await assert.rejects(message({ subject: 'x'.repeat(201) }), /CHECK constraint/i);
+    await assert.rejects(message({ source: 'sms' }), /CHECK constraint/i);
+    await assert.rejects(message({ reply: 'y'.repeat(4001) }), /CHECK constraint/i);
+    await db.run("DELETE FROM users WHERE id = 'p1'");
+    assert.equal(await count(db, 'patient_messages'), 0);
+    assert.equal(await count(db, 'patient_plans'), 0);
   } finally {
-    db.close();
+    await db.close();
   }
+});
+
+test('version 4 upgrades a version-3 database, keeps every row and supports app sets without devices', async t => {
+  const path = await tempPath(t);
+  await seedVersion2(path);
+  const raw = new DatabaseSync(path);
+  raw.exec('PRAGMA foreign_keys = ON;');
+  const v3 = wrapLocal(raw, path);
+  await migrate(v3, 3);
+  assert.equal(await version(v3), 3);
+  await v3.run(`INSERT INTO patient_plans (participant_id, staff_id, notes, arm_curl_reps, updated_at)
+    VALUES ('p1', 's1', 'Keep steady', 10, ?)`, now);
+  await v3.close();
+
+  const db = await createDatabase(path);
+  t.after(() => db.close());
+
+  assert.equal(await version(db), 4);
+  assert.equal(await count(db, 'exercise_sessions'), 1);
+  assert.equal(await count(db, 'workouts'), 4);
+  assert.equal(await count(db, 'workout_readings'), 5);
+  assert.equal(await count(db, 'workout_events'), 1);
+  assert.equal(await count(db, 'patient_plans'), 1);
+  assert.equal((await db.get("SELECT source, device_id FROM exercise_sessions WHERE id = 'es1'")).source, 'device');
+  assert.equal((await db.get("SELECT source, client_id FROM workouts WHERE id = 'r1'")).source, 'device');
+  assert.equal((await db.get("SELECT source, client_id FROM workouts WHERE id = 'r1'")).client_id, null);
+
+  // App sessions and workouts need no device row, while device rows still require a valid device_id.
+  await db.run("INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, ended_at, updated_at) VALUES ('app-s1', 'p1', NULL, 'app', 'ended', ?, ?, ?)",
+    now, now, now);
+  await db.run(`INSERT INTO workouts (id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
+    target_reps, phase, status, repetitions, elapsed_seconds, created_at, updated_at)
+    VALUES ('app-w1', 'p1', NULL, 'app', 'uuid-1', 'Arm Curl', 'reps', 'app-s1', 'arm_curl', 10, 'done', 'completed', 10, 25, ?, ?)`,
+    now, now);
+  await assert.rejects(db.run(`INSERT INTO workouts (id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
+    target_reps, phase, status, repetitions, elapsed_seconds, created_at, updated_at)
+    VALUES ('app-w2', 'p1', NULL, 'app', 'uuid-1', 'Arm Curl', 'reps', 'app-s1', 'arm_curl', 10, 'done', 'completed', 10, 25, ?, ?)`,
+    now, now), /UNIQUE constraint/i);
+  await assert.rejects(db.run(`INSERT INTO exercise_sessions (id, participant_id, device_id, source, status, created_at, updated_at)
+    VALUES ('bad-s', 'p1', NULL, 'device', 'ended', ?, ?)`, now, now), /CHECK constraint/i);
+  await assert.rejects(db.run(`INSERT INTO workouts (id, participant_id, device_id, source, client_id, exercise_name, kind, session_id, exercise_id,
+    target_reps, phase, status, created_at, updated_at)
+    VALUES ('bad-d', 'p1', 'missing-device', 'app', NULL, 'Arm Curl', 'reps', 'app-s1', 'arm_curl', 10, 'done', 'completed', ?, ?)`,
+    now, now), /FOREIGN KEY constraint/i);
+
+  assert.deepEqual(await db.all('PRAGMA foreign_key_check'), []);
+  assert.equal((await db.get('PRAGMA foreign_keys')).foreign_keys, 1);
+
+  await db.run("DELETE FROM users WHERE id = 'p1'");
+  assert.equal(await count(db, 'exercise_sessions'), 0);
+  assert.equal(await count(db, 'workouts'), 0);
+  assert.equal(await count(db, 'workout_events'), 0);
 });

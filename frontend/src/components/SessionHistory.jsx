@@ -69,7 +69,11 @@ export function SessionHistory({
     setExpanded(new Set(data?.sessions.map(session => session.id) ?? []));
     setTimeout(() => window.print(), 0);
   }
-  const deviceText = id => (devices ? ` · ${devices.find(device => device.id === id)?.name ?? 'a removed device'}` : '');
+  const sourceText = session => {
+    if (session.source === 'app' || !session.device_id) return ' · Motion Log app';
+    if (devices) return ` · ${devices.find(device => device.id === session.device_id)?.name ?? 'Wi-Fi device'}`;
+    return ' · Wi-Fi device';
+  };
 
   function toggle(id) {
     setExpanded(previous => {
@@ -114,7 +118,7 @@ export function SessionHistory({
         </p>
       )}
       {data && data.total === 0 && chip === 'all' && <p className="empty">
-          {owner === 'You have' ? 'You have no workout sessions yet. Start one on the Session tab.' : `${owner} no workout sessions yet.`}
+          {owner === 'You have' ? 'You have no workout sessions yet. Record your first set in the Motion Log iPhone app.' : `${owner} no workout sessions yet.`}
         </p>}
       {data && data.total > 0 && (
         <>
@@ -131,7 +135,7 @@ export function SessionHistory({
                       {session.status === 'active'
                         ? <StatusBadge status="active" label="In progress" />
                         : <StatusBadge status="completed" label="Ended" />}
-                      <span>{summary(session)}{deviceText(session.device_id)}</span>
+                      <span>{summary(session)}{sourceText(session)}</span>
                     </span>
                   </span>
                   <button

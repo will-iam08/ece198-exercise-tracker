@@ -29,15 +29,15 @@ function parse(body) {
 }
 
 // Applies one device upload to a rep workout. Call inside a transaction.
-export function applyDeviceEvent(db, workout, body, now) {
+export async function applyDeviceEvent(db, workout, body, now) {
   const e = parse(body);
-  const reload = () => db.prepare('SELECT * FROM workouts WHERE id = ?').get(workout.id);
-  const existing = db.prepare('SELECT * FROM workout_events WHERE workout_id = ? AND sequence = ?').get(workout.id, e.sequence);
+  const reload = () => db.get('SELECT * FROM workouts WHERE id = ?', workout.id);
+  const existing = await db.get('SELECT * FROM workout_events WHERE workout_id = ? AND sequence = ?', workout.id, e.sequence);
   if (existing) {
     if (existing.type !== e.event || existing.repetitions !== e.repetitions || existing.bpm !== e.bpm ||
       existing.capture_status !== e.capture_status) fail(409, 'Sequence already exists with different data');
-    db.prepare('UPDATE workouts SET device_seen_at = ? WHERE id = ?').run(now, workout.id);
-    return { workout: reload(), duplicate: true };
+    await db.run('UPDATE workouts SET device_seen_at = ? WHERE id = ?', now, workout.id);
+    return { workout: await reload(), duplicate: true };
   }
   if (!['pending', 'active'].includes(workout.status)) fail(409, 'Workout has ended', { phase: workout.phase });
   if (e.sequence <= workout.last_sequence) fail(409, 'Sequence must increase', { phase: workout.phase });
@@ -51,23 +51,23 @@ export function applyDeviceEvent(db, workout, body, now) {
     fail(409, 'Cumulative repetitions cannot decrease', { phase: workout.phase });
   }
 
-  db.prepare(`INSERT INTO workout_events (workout_id, sequence, type, repetitions, bpm, capture_status, received_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(workout.id, e.sequence, e.event, e.repetitions, e.bpm, e.capture_status, now);
+  await db.run(`INSERT INTO workout_events (workout_id, sequence, type, repetitions, bpm, capture_status, received_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`, workout.id, e.sequence, e.event, e.repetitions, e.bpm, e.capture_status, now);
   const base = 'status = \'active\', last_sequence = ?, device_seen_at = ?, updated_at = ?';
   const common = [e.sequence, now, now];
   if (e.event === 'status') {
-    db.prepare(`UPDATE workouts SET ${base}, device_status = ? WHERE id = ?`).run(...common, e.capture_status, workout.id);
+    await db.run(`UPDATE workouts SET ${base}, device_status = ? WHERE id = ?`, ...common, e.capture_status, workout.id);
   } else if (e.event === 'before_bpm') {
-    db.prepare(`UPDATE workouts SET ${base}, before_bpm = ?, before_bpm_at = ?, phase = 'counting',
-      started_at = COALESCE(started_at, ?) WHERE id = ?`).run(...common, e.bpm, now, now, workout.id);
+    await db.run(`UPDATE workouts SET ${base}, before_bpm = ?, before_bpm_at = ?, phase = 'counting',
+      started_at = COALESCE(started_at, ?) WHERE id = ?`, ...common, e.bpm, now, now, workout.id);
   } else if (e.event === 'progress') {
     const phase = e.repetitions === workout.target_reps ? 'after_bpm' : 'counting';
-    db.prepare(`UPDATE workouts SET ${base}, repetitions = ?, phase = ?, device_status = 'counting',
-      started_at = COALESCE(started_at, ?) WHERE id = ?`).run(...common, e.repetitions, phase, now, workout.id);
+    await db.run(`UPDATE workouts SET ${base}, repetitions = ?, phase = ?, device_status = 'counting',
+      started_at = COALESCE(started_at, ?) WHERE id = ?`, ...common, e.repetitions, phase, now, workout.id);
   } else {
     const complete = workout.repetitions === workout.target_reps && workout.before_bpm !== null;
-    db.prepare(`UPDATE workouts SET ${base}, after_bpm = ?, after_bpm_at = ?, phase = 'done', status = ?, ended_at = ?
-      WHERE id = ?`).run(...common, e.bpm, now, complete ? 'completed' : 'incomplete', now, workout.id);
+    await db.run(`UPDATE workouts SET ${base}, after_bpm = ?, after_bpm_at = ?, phase = 'done', status = ?, ended_at = ?
+      WHERE id = ?`, ...common, e.bpm, now, complete ? 'completed' : 'incomplete', now, workout.id);
   }
-  return { workout: reload(), duplicate: false };
+  return { workout: await reload(), duplicate: false };
 }

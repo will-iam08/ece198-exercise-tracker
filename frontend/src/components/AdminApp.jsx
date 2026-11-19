@@ -76,7 +76,7 @@ function Overview({ overview, onOpenPatient }) {
         <Tile icon="shield" label="Doctors" value={stats.doctors} note={`${stats.assignments} assignment${stats.assignments === 1 ? '' : 's'}`} />
         <Tile icon="history" label="Workout sessions" value={stats.sessions} note={`${stats.active_sessions} running now`} />
         <Tile icon="dumbbell" label="Exercises recorded" value={stats.workouts} note={`${stats.completed_workouts} completed`} />
-        <Tile icon="device" label="Devices" value={stats.devices} note="Active, not removed" />
+        <Tile icon="device" label="Legacy Wi-Fi devices" value={stats.devices} note="Active, not removed" />
         <Tile icon="mail" label="Unread messages" value={stats.unread_messages} note={`${stats.messages} in total`} />
       </div>
       <h3>Exercising now</h3>

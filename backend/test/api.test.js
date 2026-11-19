@@ -44,8 +44,8 @@ test('public routes, participant registration, login, expiry, and logout', async
   assert.notEqual(login.token, session.token);
   await f.request('/api/auth/logout', { method: 'POST', token: login.token, status: 204 });
   await f.request('/api/me', { token: login.token, status: 401 });
-  f.db.prepare('UPDATE auth_sessions SET expires_at = ? WHERE user_id = ?')
-    .run('2000-01-01T00:00:00.000Z', session.user.id);
+  await f.db.run('UPDATE auth_sessions SET expires_at = ? WHERE user_id = ?',
+    '2000-01-01T00:00:00.000Z', session.user.id);
   await f.request('/api/me', { token: session.token, status: 401 });
 });
 
@@ -132,12 +132,12 @@ test('staff assignments, participant ownership, and device credentials enforce s
   const aWorkout = await f.workout(alice.token, aDevice.device.id);
   const bWorkout = await f.workout(bob.token, bDevice.device.id, 'Squats');
   const staffId = randomUUID();
-  f.db.prepare('INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)')
-    .run(staffId, 'Exercise staff', 'staff@example.com', await hashPassword(password), 'staff', new Date().toISOString());
+  await f.db.run('INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)',
+    staffId, 'Exercise staff', 'staff@example.com', await hashPassword(password), 'staff', new Date().toISOString());
   const staff = (await f.request('/api/auth/login', { method: 'POST', body: { email: 'staff@example.com', password } })).data;
   assert.deepEqual((await f.request('/api/participants', { token: staff.token })).data.participants, []);
   await f.request(`/api/workouts/${aWorkout.id}`, { token: staff.token, status: 404 });
-  f.db.prepare('INSERT INTO staff_participants (staff_id,participant_id) VALUES (?,?)').run(staffId, alice.user.id);
+  await f.db.run('INSERT INTO staff_participants (staff_id,participant_id) VALUES (?,?)', staffId, alice.user.id);
   const participants = (await f.request('/api/participants', { token: staff.token })).data.participants;
   assert.deepEqual(participants.map(person => person.id), [alice.user.id]);
   assert.equal('password_hash' in participants[0], false);
@@ -171,7 +171,7 @@ test('staff assignments, participant ownership, and device credentials enforce s
   await f.request('/api/device/workout', { token: aDevice.device_token, status: 401 });
   assert.equal((await f.request(`/api/workouts/${aWorkout.id}`, { token: alice.token })).data.workout.status, 'cancelled');
   assert.deepEqual((await f.request('/api/devices', { token: alice.token })).data.devices, []);
-  f.db.prepare('DELETE FROM staff_participants WHERE staff_id = ? AND participant_id = ?').run(staffId, alice.user.id);
+  await f.db.run('DELETE FROM staff_participants WHERE staff_id = ? AND participant_id = ?', staffId, alice.user.id);
   await f.request(`/api/workouts/${aWorkout.id}`, { token: staff.token, status: 404 });
 });
 
@@ -241,6 +241,6 @@ test('workout and heart-rate history survive a database reopen', async t => {
   const history = (await reopened.request(`/api/workouts/${workout.id}/readings`, { token: user.token })).data;
   assert.equal(history.total, 1);
   assert.equal(history.readings[0].heart_rate_bpm, 105);
-  assert.deepEqual(reopened.db.prepare('PRAGMA foreign_key_check').all(), []);
+  assert.deepEqual(await reopened.db.all('PRAGMA foreign_key_check'), []);
   await reopened.close();
 });

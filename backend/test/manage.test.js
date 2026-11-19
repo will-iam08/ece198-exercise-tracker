@@ -10,9 +10,9 @@ import { hashPassword, verifyPassword } from '../security.js';
 const now = '2026-11-16T12:00:00.000Z';
 const password = 'local-test-password';
 
-function addParticipant(db, id) {
-  db.prepare('INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)')
-    .run(id, id, `${id}@example.com`, 'unused-in-storage-tests', 'participant', now);
+async function addParticipant(db, id) {
+  await db.run('INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)',
+    id, id, `${id}@example.com`, 'unused-in-storage-tests', 'participant', now);
 }
 
 test('password hashes use independent salts and verify without exposing passwords', async () => {
@@ -24,7 +24,7 @@ test('password hashes use independent salts and verify without exposing password
 });
 
 test('staff management rejects weak passwords, duplicates, promotions, and invalid assignment roles', async (t) => {
-  const db = createDatabase(':memory:');
+  const db = await createDatabase(':memory:');
   t.after(() => db.close());
   await assert.rejects(
     runManage(['create-staff', 'staff@example.com', 'Test staff'], { db, password: 'short' }),
@@ -37,56 +37,56 @@ test('staff management rejects weak passwords, duplicates, promotions, and inval
   await assert.rejects(
     runManage(['create-staff', staff.email, 'Another staff'], { db, password }), /already exists/
   );
-  addParticipant(db, 'participant');
+  await addParticipant(db, 'participant');
   await assert.rejects(
     runManage(['create-staff', 'participant@example.com', 'Promoted participant'], { db, password }), /already exists/
   );
-  assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get('participant').role, 'participant');
+  assert.equal((await db.get('SELECT role FROM users WHERE id = ?', 'participant')).role, 'participant');
   await assert.rejects(runManage(['assign', 'participant@example.com', staff.email], { db }), /staff account/);
   await assert.rejects(runManage(['assign', staff.email, staff.email], { db }), /participant account/);
   await runManage(['assign', staff.email, 'participant@example.com'], { db });
   await runManage(['assign', staff.email, 'participant@example.com'], { db });
-  assert.equal(db.prepare('SELECT count(*) AS n FROM staff_participants').get().n, 1);
+  assert.equal((await db.get('SELECT count(*) AS n FROM staff_participants')).n, 1);
   await runManage(['unassign', staff.email, 'participant@example.com'], { db });
-  assert.equal(db.prepare('SELECT count(*) AS n FROM staff_participants').get().n, 0);
+  assert.equal((await db.get('SELECT count(*) AS n FROM staff_participants')).n, 0);
 });
 
-test('database enforces device ownership and permits only one unfinished workout per device', (t) => {
-  const db = createDatabase(':memory:');
+test('database enforces device ownership and permits only one unfinished workout per device', async (t) => {
+  const db = await createDatabase(':memory:');
   t.after(() => db.close());
-  addParticipant(db, 'participant');
-  addParticipant(db, 'other');
-  db.prepare('INSERT INTO devices (id,participant_id,name,token_hash,created_at) VALUES (?,?,?,?,?)')
-    .run('device', 'participant', 'Test device', 'test-token-hash', now);
-  const insert = db.prepare(`INSERT INTO workouts
+  await addParticipant(db, 'participant');
+  await addParticipant(db, 'other');
+  await db.run('INSERT INTO devices (id,participant_id,name,token_hash,created_at) VALUES (?,?,?,?,?)',
+    'device', 'participant', 'Test device', 'test-token-hash', now);
+  const insert = (id, participantId, status) => db.run(`INSERT INTO workouts
     (id,participant_id,device_id,exercise_name,target_duration_seconds,status,created_at,updated_at)
-    VALUES (?,?,'device','Bicep curls',120,?,?,?)`);
-  insert.run('first', 'participant', 'pending', now, now);
-  assert.throws(() => insert.run('second', 'participant', 'active', now, now), /UNIQUE/);
-  assert.throws(() => insert.run('wrong-owner', 'other', 'completed', now, now), /FOREIGN KEY/);
-  insert.run('history', 'participant', 'completed', now, now);
-  db.prepare("UPDATE workouts SET status = 'cancelled' WHERE id = 'first'").run();
-  insert.run('next', 'participant', 'pending', now, now);
-  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+    VALUES (?,?,'device','Bicep curls',120,?,?,?)`, id, participantId, status, now, now);
+  await insert('first', 'participant', 'pending');
+  await assert.rejects(insert('second', 'participant', 'active'), /UNIQUE/);
+  await assert.rejects(insert('wrong-owner', 'other', 'completed'), /FOREIGN KEY/);
+  await insert('history', 'participant', 'completed');
+  await db.run("UPDATE workouts SET status = 'cancelled' WHERE id = 'first'");
+  await insert('next', 'participant', 'pending');
+  assert.deepEqual(await db.all('PRAGMA foreign_key_check'), []);
 });
 
-test('file database persists data and can initialize the same schema again', (t) => {
+test('file database persists data and can initialize the same schema again', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'ece198-storage-test-'));
   const filename = join(directory, 'nested', 'test.sqlite');
-  let db = createDatabase(filename);
-  t.after(() => {
-    db.close();
+  let db = await createDatabase(filename);
+  t.after(async () => {
+    await db.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  addParticipant(db, 'persisted');
-  db.close();
-  db = createDatabase(filename);
-  assert.equal(db.prepare('SELECT email FROM users WHERE id = ?').get('persisted').email, 'persisted@example.com');
-  assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+  await addParticipant(db, 'persisted');
+  await db.close();
+  db = await createDatabase(filename);
+  assert.equal((await db.get('SELECT email FROM users WHERE id = ?', 'persisted')).email, 'persisted@example.com');
+  assert.equal((await db.get('PRAGMA foreign_keys')).foreign_keys, 1);
 });
 
 test('create-admin uses ADMIN_PASSWORD, falls back to STAFF_PASSWORD, and keeps staff commands working', async (t) => {
-  const db = createDatabase(':memory:');
+  const db = await createDatabase(':memory:');
   t.after(() => db.close());
   await assert.rejects(
     runManage(['create-admin', 'admin@example.com', 'Site admin'], { db, password: undefined, adminPassword: 'short' }),
@@ -96,7 +96,7 @@ test('create-admin uses ADMIN_PASSWORD, falls back to STAFF_PASSWORD, and keeps 
     { db, password: 'unused-staff-password', adminPassword: password });
   assert.equal(admin.role, 'admin');
   assert.equal(admin.email, 'admin@example.com');
-  const stored = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(admin.id).password_hash;
+  const stored = (await db.get('SELECT password_hash FROM users WHERE id = ?', admin.id)).password_hash;
   assert.equal(await verifyPassword(password, stored), true);
   const { user: fallback } = await runManage(['create-admin', 'second@example.com', 'Second admin'],
     { db, password, adminPassword: undefined });

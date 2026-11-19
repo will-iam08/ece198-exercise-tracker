@@ -7,7 +7,7 @@ import { hashPassword } from '../security.js';
 export const password = 'exercise-test-password';
 
 export async function fixture(t, path = ':memory:', options = {}) {
-  const db = createDatabase(path);
+  const db = await createDatabase(path);
   const app = createApp({ db, corsOrigin: 'http://localhost:5173', ...options });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve, reject) => {
@@ -19,7 +19,7 @@ export async function fixture(t, path = ':memory:', options = {}) {
     if (closed) return;
     closed = true;
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    db.close();
+    await db.close();
   }
   t.after(close);
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -48,15 +48,15 @@ export async function fixture(t, path = ':memory:', options = {}) {
   }
   async function account(role, email, name) {
     const id = randomUUID();
-    db.prepare('INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)')
-      .run(id, name, email, await hashPassword(password), role, new Date().toISOString());
+    await db.run('INSERT INTO users (id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)',
+      id, name, email, await hashPassword(password), role, new Date().toISOString());
     const login = (await request('/api/auth/login', { method: 'POST', body: { email, password } })).data;
     return { id, ...login };
   }
   async function staff(email = 'staff@example.com', assignTo = []) {
     const login = await account('staff', email, 'Exercise staff');
     for (const participantId of assignTo) {
-      db.prepare('INSERT INTO staff_participants (staff_id,participant_id) VALUES (?,?)').run(login.id, participantId);
+      await db.run('INSERT INTO staff_participants (staff_id,participant_id) VALUES (?,?)', login.id, participantId);
     }
     return login;
   }

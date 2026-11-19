@@ -28,27 +28,27 @@ export function planValues(body) {
 }
 
 export function registerPlanRoutes(app, { db, userAuth, participant, staffOrAdmin, assignedParticipant }) {
-  const plan = participantId => db.prepare(PLAN_SELECT).get(participantId) ?? null;
+  const plan = async participantId => (await db.get(PLAN_SELECT, participantId)) ?? null;
 
   // Assigned doctors and admins only: patients get 403 from staffOrAdmin, and
   // an unassigned doctor gets the same 404 as for a patient who does not exist.
-  app.get('/api/participants/:id/plan', userAuth, staffOrAdmin, assignedParticipant, (req, res) => {
-    res.json({ plan: plan(req.params.id) });
+  app.get('/api/participants/:id/plan', userAuth, staffOrAdmin, assignedParticipant, async (req, res) => {
+    res.json({ plan: await plan(req.params.id) });
   });
 
-  app.put('/api/participants/:id/plan', userAuth, staffOrAdmin, assignedParticipant, (req, res) => {
+  app.put('/api/participants/:id/plan', userAuth, staffOrAdmin, assignedParticipant, async (req, res) => {
     const values = planValues(req.body);
-    db.prepare(`INSERT INTO patient_plans (participant_id, staff_id, notes, arm_curl_reps, shoulder_press_reps, back_row_reps,
+    await db.run(`INSERT INTO patient_plans (participant_id, staff_id, notes, arm_curl_reps, shoulder_press_reps, back_row_reps,
         target_bpm_min, target_bpm_max, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (participant_id) DO UPDATE SET staff_id = excluded.staff_id, notes = excluded.notes,
         arm_curl_reps = excluded.arm_curl_reps, shoulder_press_reps = excluded.shoulder_press_reps,
         back_row_reps = excluded.back_row_reps, target_bpm_min = excluded.target_bpm_min,
-        target_bpm_max = excluded.target_bpm_max, updated_at = excluded.updated_at`)
-      .run(req.params.id, req.user.id, values.notes, values.arm_curl_reps, values.shoulder_press_reps, values.back_row_reps,
-        values.target_bpm_min, values.target_bpm_max, new Date().toISOString());
-    res.json({ plan: plan(req.params.id) });
+        target_bpm_max = excluded.target_bpm_max, updated_at = excluded.updated_at`,
+      req.params.id, req.user.id, values.notes, values.arm_curl_reps, values.shoulder_press_reps, values.back_row_reps,
+      values.target_bpm_min, values.target_bpm_max, new Date().toISOString());
+    res.json({ plan: await plan(req.params.id) });
   });
 
   // The signed-in patient's own plan, with the name of whoever last saved it.
-  app.get('/api/plan', userAuth, participant, (req, res) => res.json({ plan: plan(req.user.id) }));
+  app.get('/api/plan', userAuth, participant, async (req, res) => res.json({ plan: await plan(req.user.id) }));
 }

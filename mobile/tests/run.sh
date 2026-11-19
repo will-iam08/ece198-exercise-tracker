@@ -8,5 +8,5 @@ c++ -std=c++17 -Wall -Wextra -Werror -I../Firmware/MotionTrack ../../firmware/te
 "$out/sensors"
 c++ -std=c++17 -I../Firmware/MotionTrack flow.cpp -o "$out/flow"
 "$out/flow" > "$out/snapshots.bin"
-swiftc ../MotionLog/Tracker.swift main.swift -o "$out/decode"
+swiftc ../MotionLog/Tracker.swift ../MotionLog/SyncCore.swift main.swift -o "$out/decode"
 "$out/decode" "$out/snapshots.bin"

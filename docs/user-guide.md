@@ -24,75 +24,28 @@ workout session that is still running.
 
 1. Open `http://localhost:5173/` and press **Create an account**.
 2. Enter your name, email address and a password of 12 to 128 characters.
-3. Press **Create account**. You are signed in and see five tabs: **Session**, **History**, **Progress**,
-   **Messages** and **My devices**.
+3. Press **Create account**. You are signed in and see four tabs: **Overview**, **History**, **Progress** and **Messages**.
 
 Next time, sign in with the same email and password on the **Sign in** form.
 
-### 2. Add your exercise device
+### 2. Sign in on the Motion Log iPhone app
 
-The ESP32 needs its own token before it can send anything to your account. You do this once per device.
+The ESP32 tracker talks over Bluetooth Low Energy to the **Motion Log** iPhone app instead of connecting directly over Wi-Fi.
 
-1. Open **My devices**.
-2. Under **Add a device**, type a name (for example "Wrist ESP32") and press **Add device**.
-3. A device token appears. **It is shown only once.** Press **Copy token** and put it in the device's
-   `secrets.h` file (see [firmware/README.md](../firmware/README.md)).
-4. Press **I have saved it — hide token**. The token cannot be shown again; if it is lost, remove the device
-   and add it again.
+1. On your iPhone, open **Motion Log** and switch to **My tracker**.
+2. Tap **Sign in** (or **Account**), copy the **Server URL for the Motion Log app** shown on your **Overview** tab, and sign in with your patient email and password.
+3. Your app stores the 24-hour session token in the iOS Keychain, pulls down your doctor's care plan, and pre-fills prescribed rep targets.
 
-Your devices are listed under **Choose the device to use**, with the time each one last contacted the server.
-**Remove device** stops its token from working; your past workouts are kept.
+### 3. Record and sync a workout set
 
-### 3. Start a workout session
+1. In **Motion Log**, connect your ESP32 over Bluetooth (`Scan for tracker`).
+2. Choose **Biceps curl**, **Shoulder press**, or **Back row** and set a target from 1 to 50 reps.
+3. Follow the heart-rate check-ins before and after counting reps (or tap **Skip heart-rate check** / **End workout** if needed).
+4. Once finished or stopped, Motion Log queues the set locally and uploads it to your web record. If you are offline or signed out, workouts are saved in the queue and uploaded with backoff when signal returns and you are signed in.
 
-A session holds the exercises you do today.
+While a set is in progress and online, **Overview** shows an optional **Live from Motion Log** banner (and marks it if no update arrives within 5 seconds: **Device not responding (last update N s ago)**).
 
-1. Open **Session**. If you have more than one device, choose the one you are wearing.
-2. Press **Start workout session**.
-
-If your doctor has set a care plan, a **From Your Doctor** card at the top of the Session tab shows their notes,
-how many reps to do for each exercise, and the heart-rate range to be in after exercising.
-
-### 4. Choose an exercise
-
-1. Under **1. Choose an exercise**, pick a card: **Arm Curl** (device on the forearm), **Shoulder Press** or
-   **Back Row** (device on the upper arm). Each card shows where to wear the device.
-2. Under **2. How many reps?**, enter a whole number from 1 to 50. If your doctor prescribed a number for that
-   exercise, it is filled in for you (each card shows "Doctor's target"); you can still change it.
-3. Press **Start exercise**, then follow the screen on the device.
-
-### 5. Follow the exercise
-
-The live screen updates about once a second and shows:
-
-- **The steps**, in order, each marked Done, Now or Next:
-  1. **Before BPM**: put your finger on the heart-rate sensor and keep still.
-  2. **Counting**: do your reps. The device stops counting at your target.
-  3. **After BPM**: put your finger on the sensor again.
-  4. **Done**: the exercise is saved.
-- **The rep counter**, for example `7 / 10`, with a progress bar.
-- **The device line**, saying what the device is doing: "Place your finger on the sensor", "Hold still —
-  reading", "Signal weak — trying again", "Counting", or "Waiting for the device".
-
-If the device has not been heard from for more than 5 seconds, the screen turns amber and shows
-**Device not responding (last update N s ago)**. Check that the device is switched on and connected to Wi-Fi;
-the screen goes back to normal as soon as it reports again. If the website itself loses the server, it says
-**Lost connection to the server** and keeps trying.
-
-Two buttons let you change course:
-
-- **Skip reading** (during a heart-rate step) moves on without that reading. The exercise is then saved as
-  Incomplete.
-- **Stop exercise**, then **Yes, stop exercise**, ends it now. It is saved as Incomplete with the reps counted
-  so far.
-
-When the exercise ends, a summary appears at the top and you can pick the next one under
-**Choose next exercise**.
-
-### 6. End the session
-
-Press **End session**, then **Yes, end session**. If an exercise is still running, it is saved as Incomplete.
-The session moves to your history, and **Start a new session** begins another.
+Legacy **My devices** Wi-Fi token management is retired from the patient interface; previously recorded Wi-Fi workouts stay intact in **History** and **Progress**.
 
 ### 7. History
 
