@@ -402,9 +402,9 @@ existing account.
 To try it locally, from `backend/` (choose your own values; do not store them in `.env`):
 
 ```bash
-read -rs -p 'Demo admin password: ' DEMO_ADMIN_PASSWORD && export DEMO_ADMIN_PASSWORD; echo
-read -rs -p 'Demo doctor password: ' DEMO_DOCTOR_PASSWORD && export DEMO_DOCTOR_PASSWORD; echo
-read -rs -p 'Demo patient password: ' DEMO_PATIENT_PASSWORD && export DEMO_PATIENT_PASSWORD; echo
+printf 'Demo admin password: '; read -rs DEMO_ADMIN_PASSWORD; echo; export DEMO_ADMIN_PASSWORD
+printf 'Demo doctor password: '; read -rs DEMO_DOCTOR_PASSWORD; echo; export DEMO_DOCTOR_PASSWORD
+printf 'Demo patient password: '; read -rs DEMO_PATIENT_PASSWORD; echo; export DEMO_PATIENT_PASSWORD
 node seed-demo.js
 unset DEMO_ADMIN_PASSWORD DEMO_DOCTOR_PASSWORD DEMO_PATIENT_PASSWORD
 ```
