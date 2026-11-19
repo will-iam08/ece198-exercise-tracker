@@ -57,6 +57,8 @@ described in [docs/demo.md](docs/demo.md). Run the checks with `cd backend && np
 - [Demo setup and script](docs/demo.md): exact steps, with the test device or the real ESP32; LAN and live-domain
   access; the email bot
 - [Backend: API, device protocol, schema, migration, CLI](backend/README.md)
+- [Demo accounts and Render deployment](backend/README.md#demo-accounts-and-render): the demo seed needs
+  `DEMO_ADMIN_PASSWORD`, `DEMO_DOCTOR_PASSWORD` and `DEMO_PATIENT_PASSWORD` and creates nothing without them
 - [Frontend: website setup, test device, behaviour](frontend/README.md)
 - [Firmware: wiring, libraries, flashing, Serial commands](firmware/README.md)
 - [Approved design](docs/design/2026-11-18-motiontrack-design.md)

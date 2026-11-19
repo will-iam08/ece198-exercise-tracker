@@ -346,6 +346,7 @@ stand-in mailbox).
 | `CORS_ORIGIN` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated list of exact browser origins, each without a path or trailing slash. Other browser origins get 403. Requests with no `Origin` header (ESP32, curl, the website's dev-server proxy for its own address) are unaffected. |
 | `STAFF_PASSWORD` | none | Used by `create-staff`, and by `create-admin` when `ADMIN_PASSWORD` is not set (12-128 characters). Do not store it in `.env`. |
 | `ADMIN_PASSWORD` | none | Used by `create-admin` (12-128 characters). Do not store it in `.env`. |
+| `DEMO_ADMIN_PASSWORD`, `DEMO_DOCTOR_PASSWORD`, `DEMO_PATIENT_PASSWORD` | none | Used only by `seed-demo.js` for the demo admin, doctor and patient accounts. All three are required, 12-128 characters each and different from each other; without them no demo accounts are created. See [Demo accounts](#demo-accounts-and-render). |
 | `BOT_EMAIL_ADDRESS` | `BOT_IMAP_USER` | The address patients email; shown on their Messages tab. |
 | `BOT_WEBHOOK_SECRET` | none | Enables `POST /api/bot/inbound-email`; at least 16 characters. Without it the route is off (404). |
 | `BOT_IMAP_HOST`, `BOT_IMAP_USER`, `BOT_IMAP_PASS` | none | When all three are set, the server checks that mailbox for unread mail. Off by default. |
@@ -383,6 +384,40 @@ The commands work while the server is running and print JSON. `create-staff` ref
 account (it never promotes one), and so does `create-admin`; `assign` and `unassign` require an existing `staff`
 email and an existing `participant` email, and are idempotent. Command usage: `create-staff EMAIL NAME`,
 `create-admin EMAIL NAME`, `assign STAFF_EMAIL PARTICIPANT_EMAIL`, `unassign STAFF_EMAIL PARTICIPANT_EMAIL`.
+
+### Demo accounts and Render
+
+`node seed-demo.js` creates a fixed set of demo accounts: four admins (`admin1@motiontrack.org` to
+`admin4@motiontrack.org`), two doctors (`dr.chen@motiontrack.org`, `dr.morgan@motiontrack.org`) and two patients
+(`maya.patel@motiontrack.org`, `liam.park@motiontrack.org`), and assigns each patient to one doctor. It has no
+built-in passwords. It reads one password per role from `DEMO_ADMIN_PASSWORD`, `DEMO_DOCTOR_PASSWORD` and
+`DEMO_PATIENT_PASSWORD`; each must contain 12-128 characters and the three must differ. Passwords that earlier
+versions of this repository published as defaults are refused.
+
+If the variables are missing or invalid, the script creates nothing, prints one line naming the variable to fix
+(never a password) and exits with code 0, so `node seed-demo.js && npm start` still starts the server, just without
+demo accounts. Running it again only adds accounts that do not exist yet: it never changes the password of an
+existing account.
+
+To try it locally, from `backend/` (choose your own values; do not store them in `.env`):
+
+```bash
+read -rs -p 'Demo admin password: ' DEMO_ADMIN_PASSWORD && export DEMO_ADMIN_PASSWORD; echo
+read -rs -p 'Demo doctor password: ' DEMO_DOCTOR_PASSWORD && export DEMO_DOCTOR_PASSWORD; echo
+read -rs -p 'Demo patient password: ' DEMO_PATIENT_PASSWORD && export DEMO_PATIENT_PASSWORD; echo
+node seed-demo.js
+unset DEMO_ADMIN_PASSWORD DEMO_DOCTOR_PASSWORD DEMO_PATIENT_PASSWORD
+```
+
+`../render.yaml` runs the seed before each start and declares the three variables with `generateValue: true`, so
+Render creates a random value for each one that does not exist yet (on the first Blueprint deploy and on later
+Blueprint syncs). To sign in as a demo user, open the service in the Render Dashboard, go to **Environment**, and
+reveal the value of the variable for that role. To use your own value instead, edit it there and redeploy; this
+only affects accounts that do not exist yet.
+
+There is no command to change an existing account's password. A database that was seeded before the passwords
+became required still has the old published passwords on those accounts; delete that database file (this removes
+all its data) and seed again, or do not expose it.
 
 LAN access, a live domain through Cloudflare Tunnel and the email bot are set up in
 [../docs/demo.md](../docs/demo.md) sections 6 and 7.
