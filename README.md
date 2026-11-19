@@ -13,12 +13,15 @@ An exercise is **Complete** only when every rep was counted and both heart-rate 
 The website says "patient", "doctor" and "admin"; the API, CLI and database call those roles `participant`, `staff`
 and `admin`.
 
+For direct iPhone control over Bluetooth, use the [Motion Log app and integrated ESP32 firmware](mobile/). [中文接线与安装指南](mobile/README.zh-CN.md)
+
 ## Layout
 
 ```text
 backend/    Node 24 + Express + SQLite API, device protocol, account CLI, email bot, tests
 frontend/   React + Vite website: patient at /, doctor at /doctor, admin at /admin; synthetic test device script
 firmware/   ESP32 Arduino sketch (MotionTrack/), host tests, wiring and flashing guide
+mobile/     SwiftUI iPhone app, Bluetooth-enabled ESP32 firmware, wiring guide and protocol tests
 docs/       user-guide.md (using the website), demo.md (setup and demo script), design/ (the approved design)
 ```
 
